@@ -259,7 +259,7 @@ def eval(args, config, data, pipeline):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="build cam traj")
-    parser.add_argument("--input_path", type=str, required=True)
+    parser.add_argument("--input_path", type=str, default="demo/controlnet.png")
     parser.add_argument("--model_dir", type=str, default="check_points/pretrained_model", help="model directory.")
     parser.add_argument("--output_path", type=str, default="outputs/demo")
     parser.add_argument("--val_cfg", type=float, default=2.0)
@@ -280,7 +280,7 @@ if __name__ == '__main__':
     parser.add_argument("--y_offset", type=float, default=0.0, help="left moving")
     parser.add_argument("--median_depth", action="store_true")
     parser.add_argument("--foreground", action="store_true")
-    parser.add_argument("--cam_traj", type=str, default="free",
+    parser.add_argument("--cam_traj", type=str, default="bi_direction",
                         choices=["free", "bi_direction", "disorder", "swing1", "swing2"])
 
     args = parser.parse_args()
@@ -483,6 +483,8 @@ if __name__ == '__main__':
                 depth_avg = torch.median(depth).item()
         else:
             depth_avg = depth[h // 2, w // 2]  # 以图像中心处的depth(z)为球心旋转
+            # My depth thing 
+            depth_avg = 0.9*depth.min() + 0.1*depth.mean()
         radius = depth_avg * args.center_scale
         c2w_0 = torch.tensor([[1, 0, 0, 0],
                               [0, 1, 0, 0],
@@ -563,6 +565,11 @@ if __name__ == '__main__':
                 x_offsets.append(radius * args.x_offset * ((i + 1) / args.nframe))
                 y_offsets.append(radius * args.y_offset * ((i + 1) / args.nframe))
 
+        # My rotation matrices 
+        d_phi = np.linspace(start=0, stop=360, num=args.nframe)
+        d_theta = np.ones_like(d_phi) * args.elevation
+        d_r = np.ones_like(d_phi) #* radius.item()
+        # End of my hack 
         for i in range(args.nframe - 1):
             d_theta_rad = np.deg2rad(d_theta[i])
             R_theta = torch.tensor([[1, 0, 0, 0],
