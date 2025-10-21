@@ -12,34 +12,26 @@ def load_cameras(camera_path: Path):
     """
     with open(camera_path, 'r') as file:
         args = json.load(file)
-    
-    extrinsics = []
-    intrinsics = []
-    for cam in args["frames"]: 
-        K = np.array([[cam["fl_x"], 0, cam["cx"]],
-                      [0, cam["fl_y"], cam["cy"]],
-                      [0, 0, 1]])
-        F = np.array(cam["transform_matrix"])
-        flip_y = np.diag([1, -1, 1])
-        flip_z = np.diag([1, 1, -1])
-        # F[:3,:3] = F[:3,:3] @ np.diag([-1,1,-1]) # my view convention is flipped 
-        F[:3,:3] = flip_y @ F[:3,:3] @ flip_y
-        F[:3,3] = flip_y @ F[:3,3]
-        F[:3,:3] = flip_z @ F[:3,:3] @ flip_z
-        F[:3,3] = flip_z @ F[:3,3]
-        extrinsics.append(F) 
-        intrinsics.append(K)
-    
     # The reference image is selected 
-    ref_n = args["ref_img"]
-    ref_cam = args["frames"][ref_n] 
+    ref = args["ref"]
+    ref_cam = args["frames"][ref] 
     img_pth = ref_cam["file_path"]
     image, _, _ = load_rgb(img_pth)
+    ref_intrinsics = np.array([[ref_cam["fl_x"], 0, ref_cam["cx"]],
+                      [0, ref_cam["fl_y"], ref_cam["cy"]],
+                      [0, 0, 1]])
+    ref_n = args["trajectory_ref"]
+
+    extrinsics = []
+    for cam in args["trajectory"]: 
+        F = np.array(cam["transform_matrix"])
+        # MVGenMaster uses y+down and z+forward, but my camera extrinsics are in NeRF format
+        flip_ynz = np.diag([1, -1, -1, 1])
+        # On the left flips world z and y
+        # On the right rotates camera matrix to point the opposite way 
+        extrinsics.append(flip_ynz @ F @ flip_ynz) 
+    
+    # NOTE : Since these are generated camera views I simply copy the reference cameras intrinsics 
+    intrinsics = np.repeat(ref_intrinsics, repeats=len(extrinsics))
+    
     return image, img_pth, ref_n, extrinsics, intrinsics
-    # ref_extrinsics = extrinsics.pop(ref_n)
-    # ref_intrinsics = intrinsics.pop(ref_n)
-
-    # Calculate c2c extrinsics for other views than the reference image
-    # c2c = [ref_extrinsics @ np.linalg.inv(ex) for ex in extrinsics] # or should I output this? 
-
-    # return image, ref_extrinsics, ref_intrinsics, extrinsics, intrinsics

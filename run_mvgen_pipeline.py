@@ -264,9 +264,10 @@ def eval(args, config, data, pipeline):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="build cam traj")
+    parser.add_argument("--working_dir", type=str, default="data")
     parser.add_argument("--input_path", type=str, default="images/transforms.json")
     parser.add_argument("--model_dir", type=str, default="check_points/pretrained_model", help="model directory.")
-    parser.add_argument("--output_path", type=str, default="outputs/test")
+    parser.add_argument("--output_path", type=str, default="mvgen")
     parser.add_argument("--val_cfg", type=float, default=2.0)
     parser.add_argument("--key_rescale", type=float, default=None)
     parser.add_argument("--camera_longest_side", type=float, default=5.0)
@@ -301,12 +302,12 @@ if __name__ == '__main__':
 
     device = "cuda"
 
-    save_path = Path(args.output_path)
+    save_path = Path(args.working_dir) / args.output_path
     save_path.mkdir(parents=True, exist_ok=True)
     args.cond_num = 1
 
     # Cameras and reference image
-    image, img_pth, ref_n, extrinsics, intrinsics = load_cameras(args.input_path)
+    image, img_pth, ref_n, extrinsics, intrinsics = load_cameras(Path(args.working_dir) / args.input_path)
     h, w, _ = image.shape
     c2ws_all = [torch.tensor(ex, dtype=torch.float32) for ex in extrinsics]
     w2cs_all = [c2w.inverse() for c2w in c2ws_all]
