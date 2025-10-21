@@ -35,6 +35,8 @@ from my_diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion_multiview
 from scipy.interpolate import UnivariateSpline
 from scipy.interpolate import interp1d
 
+from plot_cameras import plot_cameras_topdown, plot_cameras_topdown_flexible
+
 CAM_COLORS = [(255, 0, 0), (0, 0, 255), (0, 255, 0), (255, 0, 255), (255, 204, 0), (0, 204, 204),
               (128, 255, 255), (255, 128, 255), (255, 255, 128), (0, 0, 0), (128, 128, 128)]
 
@@ -272,7 +274,7 @@ if __name__ == '__main__':
     parser.add_argument("--target_limit", type=int, default=None)
     # single-view parameters
     parser.add_argument("--center_scale", type=float, default=1.0)
-    parser.add_argument("--elevation", type=float, default=5.0, help="the initial elevation angle")
+    parser.add_argument("--elevation", type=float, default=45.0, help="the initial elevation angle")
     parser.add_argument("--d_theta", type=float, default=0.0, help="elevation rotation angle")
     parser.add_argument("--d_phi", type=float, default=45.0, help="azimuth rotation angle")
     parser.add_argument("--d_r", type=float, default=1.0, help="the distance from camera to the world center")
@@ -566,9 +568,9 @@ if __name__ == '__main__':
                 y_offsets.append(radius * args.y_offset * ((i + 1) / args.nframe))
 
         # My rotation matrices 
-        d_phi = np.linspace(start=0, stop=360, num=args.nframe)
-        d_theta = np.ones_like(d_phi) * args.elevation
-        d_r = np.ones_like(d_phi) #* radius.item()
+        # d_phi = np.linspace(start=0, stop=360, num=args.nframe)
+        # d_theta = np.ones_like(d_phi) * args.elevation
+        # d_r = np.ones_like(d_phi) #* radius.item()
         # End of my hack 
         for i in range(args.nframe - 1):
             d_theta_rad = np.deg2rad(d_theta[i])
