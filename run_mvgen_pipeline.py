@@ -265,7 +265,7 @@ def eval(args, config, data, pipeline):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="build cam traj")
     parser.add_argument("--working_dir", type=str, default="data")
-    parser.add_argument("--input_path", type=str, default="images/transforms.json")
+    parser.add_argument("--input_path", type=str, default="transforms.json")
     parser.add_argument("--model_dir", type=str, default="check_points/pretrained_model", help="model directory.")
     parser.add_argument("--output_path", type=str, default="mvgen")
     parser.add_argument("--val_cfg", type=float, default=2.0)

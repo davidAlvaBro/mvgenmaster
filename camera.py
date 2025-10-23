@@ -24,7 +24,7 @@ def load_cameras(camera_path: Path):
 
     extrinsics = []
     for cam in args["trajectory"]: 
-        F = np.array(cam["transform_matrix"])
+        F = np.array(cam)
         # MVGenMaster uses y+down and z+forward, but my camera extrinsics are in NeRF format
         flip_ynz = np.diag([1, -1, -1, 1])
         # On the left flips world z and y
@@ -32,6 +32,6 @@ def load_cameras(camera_path: Path):
         extrinsics.append(flip_ynz @ F @ flip_ynz) 
     
     # NOTE : Since these are generated camera views I simply copy the reference cameras intrinsics 
-    intrinsics = np.repeat(ref_intrinsics, repeats=len(extrinsics))
+    intrinsics = [ref_intrinsics]*len(extrinsics)
     
     return image, img_pth, ref_n, extrinsics, intrinsics
