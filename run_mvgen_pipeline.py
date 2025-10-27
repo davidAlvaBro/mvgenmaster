@@ -206,7 +206,7 @@ def load_dataset(args, config, reference_cam, target_cam, reference_list, ref_nu
             "ref_names": ref_names, "tar_names": tar_names}
 
 
-def eval(args, config, data, pipeline):
+def eval(args, config, data, pipeline, data_args: dict):
     N_target = data['tar_intrinsic'].shape[0]
     gen_num = config.nframe - args.cond_num
 
@@ -257,15 +257,29 @@ def eval(args, config, data, pipeline):
             preds = preds[args.cond_num:]
             preds = (preds * 255).astype(np.uint8)
 
+            # Store images and along with their names and locations in a json in the way the gaussian splatting works 
+            new_transform = data_args.copy() 
+            new_transform.pop("trajectory")
+            new_transform["frames"] = data_args["trajectory"]
+            parent_path = Path(config.save_path)
             for j in range(preds.shape[0]):
-                cv2.imwrite(f"{config.save_path}/images/{data['tar_names'][i::iter_times][j].split('.')[0]}.png", preds[j, :, :, ::-1])
+                frame = new_transform["frames"][j]
+                file_name = f"images/{data['tar_names'][i::iter_times][j].split('.')[0]}.png"
+                cv2.imwrite(parent_path / file_name, preds[j, :, :, ::-1])
+                
+                if frame["file_path"] is not None: 
+                    file_name = frame["file_path"]
+                    cv2.imwrite(parent_path / file_name, preds[j, :, :, ::-1])
+                
+            with open(parent_path / "transforms.json", "w", encoding="utf-8") as f:
+                json.dump(new_transform, f, ensure_ascii=False, indent=2)           
 
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="build cam traj")
-    parser.add_argument("--working_dir", type=str, default="data")
-    parser.add_argument("--input_path", type=str, default="transforms.json")
+    parser.add_argument("--working_dir", type=str, default="../data/set2")
+    parser.add_argument("--input_path", type=str, default="../data/set2/transforms.json")
     parser.add_argument("--model_dir", type=str, default="check_points/pretrained_model", help="model directory.")
     parser.add_argument("--output_path", type=str, default="mvgen")
     parser.add_argument("--val_cfg", type=float, default=2.0)
@@ -306,8 +320,11 @@ if __name__ == '__main__':
     save_path.mkdir(parents=True, exist_ok=True)
     args.cond_num = 1
 
+    with open(args.input_path, 'r') as file:
+        data_args = json.load(file)
+
     # Cameras and reference image
-    image, img_pth, ref_n, extrinsics, intrinsics = load_cameras(Path(args.working_dir) / args.input_path)
+    image, img_pth, ref_n, extrinsics, intrinsics = load_cameras(data_args)
     h, w, _ = image.shape
     c2ws_all = [torch.tensor(ex, dtype=torch.float32) for ex in extrinsics]
     w2cs_all = [c2w.inverse() for c2w in c2ws_all]
@@ -390,7 +407,7 @@ if __name__ == '__main__':
     data = load_dataset(args, config, reference_cam, target_cam, [img_pth], [ref_n], [depth.cpu().numpy()])
 
     os.makedirs(f"{save_path}/images", exist_ok=True)
-    eval(args, config, data, pipeline)
+    eval(args, config, data, pipeline, data_args)
 
     results = glob(f"{config.save_path}/images/view*.png")
     results.sort(key=lambda x: int(x.split('/')[-1].replace(".png", "").replace("view", "").replace("_ref", "")))
