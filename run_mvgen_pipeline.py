@@ -324,7 +324,7 @@ if __name__ == '__main__':
         data_args = json.load(file)
 
     # Cameras and reference image
-    image, img_pth, ref_n, extrinsics, intrinsics = load_cameras(data_args)
+    image, img_pth, ref_n, extrinsics, intrinsics = load_cameras(Path(args.working_dir), data_args)
     h, w, _ = image.shape
     c2ws_all = [torch.tensor(ex, dtype=torch.float32) for ex in extrinsics]
     w2cs_all = [c2w.inverse() for c2w in c2ws_all]

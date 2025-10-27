@@ -1,11 +1,11 @@
-# from pathlib import Path
+from pathlib import Path
 # import json
 
 import numpy as np 
 
 from depth_pro.utils import load_rgb
 
-def load_cameras(args: dict): 
+def load_cameras(parent_dir: Path, args: dict): 
     """
     This method loads in all camera to world matrices for a given .json,
     then translates them to 'first camera view' to 'other camera view'.
@@ -14,7 +14,7 @@ def load_cameras(args: dict):
     ref = args["ref"]
     ref_cam = args["frames"][ref] 
     img_pth = ref_cam["file_path"]
-    image, _, _ = load_rgb(img_pth)
+    image, _, _ = load_rgb(parent_dir / img_pth)
     ref_n = args["trajectory_ref"]
 
     intrinsics = [] 
