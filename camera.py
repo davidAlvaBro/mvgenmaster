@@ -13,8 +13,8 @@ def load_cameras(parent_dir: Path, args: dict):
     # The reference image is selected 
     ref = args["ref"]
     ref_cam = args["frames"][ref] 
-    img_pth = ref_cam["file_path"]
-    image, _, _ = load_rgb(parent_dir / img_pth)
+    img_pth = parent_dir / ref_cam["file_path"]
+    image, _, _ = load_rgb(img_pth)
     ref_n = args["trajectory_ref"]
 
     intrinsics = [] 
