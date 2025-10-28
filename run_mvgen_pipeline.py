@@ -254,7 +254,9 @@ def eval(args, config, data, pipeline, data_args: dict):
                              output_type="np", config=config_copy, tag=["custom"] * image.shape[0],
                              class_label=args.class_label, depth=depth, vae=pipeline.vae, generator=generator).images  # [f,h,w,c]
             print("Time used:", time.time() - st)
+            print(preds.shape)
             preds = preds[args.cond_num:]
+            print(preds.shape)
             preds = (preds * 255).astype(np.uint8)
 
             # Store images and along with their names and locations in a json in the way the gaussian splatting works 
@@ -270,6 +272,8 @@ def eval(args, config, data, pipeline, data_args: dict):
                     file_name = frame["file_path"]
                 else: 
                     file_name = f"images/view_{j}.png"
+                
+                print(j, file_name)
                 
                 img_paths_in_order.append(str(parent_path / file_name))
                 cv2.imwrite(parent_path / file_name, preds[j, :, :, ::-1])
