@@ -219,7 +219,7 @@ def eval(args, config, data, pipeline, data_args: dict):
             file_name = frame["file_path"]
         else: 
             file_name = f"images/view{i}.png"
-            frame["file_path"] = file_name # TODO: Check that this object is a reference 
+            frame["file_path"] = file_name 
         file_names.append(str(parent_path / file_name))
     
     with open(parent_path / "transforms.json", "w", encoding="utf-8") as f:
@@ -231,6 +231,7 @@ def eval(args, config, data, pipeline, data_args: dict):
     # Save reference image 
     ref_img = ToPILImage()((data['ref_images'][0] + 1) / 2)
     ref_img.save(file_names[new_transform["trajectory_ref"]])
+    file_names_without_reference = file_names[:new_transform["trajectory_ref"]] + file_names[new_transform["trajectory_ref"]+1:]
 
     with torch.no_grad(), torch.autocast("cuda"):
         # Only generating 'gen_num' new frames each iteration
@@ -277,7 +278,7 @@ def eval(args, config, data, pipeline, data_args: dict):
 
             # Store images 
             for j in range(preds.shape[0]):
-                cv2.imwrite(file_names[current_views[j]], preds[j, :, :, ::-1])
+                cv2.imwrite(file_names_without_reference[current_views[j]], preds[j, :, :, ::-1])
 
         return file_names 
 
