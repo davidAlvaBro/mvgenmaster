@@ -207,23 +207,42 @@ def load_dataset(args, config, reference_cam, target_cam, reference_list, ref_nu
 
 
 def eval(args, config, data, pipeline, data_args: dict):
+    # Bookkeeping for GS pipeline (make a new transforms.json)
+    new_transform = data_args.copy()
+    new_transform.pop("trajectory")
+    new_transform["frames"] = data_args["trajectory"]
+    parent_path = Path(config.save_path)
+    file_names = [] 
+    for i in range(len(new_transform["frames"])): 
+        frame = new_transform["frames"][j]
+        if frame["file_path"] is not None: 
+            file_name = frame["file_path"]
+        else: 
+            file_name = f"images/view{j}.png"
+            frame["file_path"] = file_name # TODO: Check that this object is a reference 
+        file_names.append(str(parent_path / file_name))
+    
+    with open(parent_path / "transforms.json", "w", encoding="utf-8") as f:
+        json.dump(new_transform, f, ensure_ascii=False, indent=2)      
+
     N_target = data['tar_intrinsic'].shape[0]
     gen_num = config.nframe - args.cond_num
+    img_paths_in_order = [] 
 
-    # save reference images
-    for i in range(data['ref_images'].shape[0]):
-        ref_img = ToPILImage()((data['ref_images'][i] + 1) / 2)
-        ref_img.save(f"{config.save_path}/images/{data['ref_names'][i].split('.')[0]}.png")
+    # Save reference image 
+    ref_img = ToPILImage()((data['ref_images'][0] + 1) / 2)
+    ref_img.save(parent_path / file_names[new_transform["trajectory_ref"]])
 
     with torch.no_grad(), torch.autocast("cuda"):
+        # Only generating 'gen_num' new frames each iteration
         iter_times = N_target // gen_num
         if N_target % gen_num != 0:
             iter_times += 1
         for i in range(iter_times):
-            print(f"synthesis target views {np.arange(N_target)[i::iter_times].tolist()}...")
+            current_views = np.arange(N_target)[i::iter_times].tolist()
+            print(f"synthesis target views {current_views}...")
             h, w = data['ref_images'].shape[2], data['ref_images'].shape[3]
-            gen_num_ = len(np.arange(N_target)[i::iter_times].tolist())
-            print(f"Gen num {gen_num_ + args.cond_num}...")
+            gen_num_ = len(current_views)
             image = torch.cat([data["ref_images"], torch.zeros((gen_num_, 3, h, w), dtype=torch.float32)], dim=0).to("cuda")
             intrinsic = torch.cat([data["ref_intrinsic"], data["tar_intrinsic"][i::iter_times]], dim=0).to("cuda")
             extrinsic = torch.cat([data["ref_extrinsic"], data["tar_extrinsic"][i::iter_times]], dim=0).to("cuda")
@@ -239,14 +258,14 @@ def eval(args, config, data, pipeline, data_args: dict):
             generator = generator.manual_seed(args.seed)
             st = time.time()
 
-            # Print the point cloud projection 
+            # Print the point cloud projection - TODO remove? also why is this not passed to the pipeline?
             if config.model_cfg.get("enable_depth", False) and config.model_cfg.get("priors3d", False):
                 color_warps = global_position_encoding_3d(config_copy, depth, intrinsic, extrinsic,
                                                           args.cond_num, nframe=nframe_new, device=device,
                                                           pe_scale=1 / 8, embed_dim=config.model_cfg.get("coord_dim", 192),
                                                           colors=image)[0]
 
-                cv2.imwrite(f"{config.save_path}/warp{np.arange(N_target)[i::iter_times].tolist()}.png", color_warps[:, :, ::-1])
+                cv2.imwrite(f"{config.save_path}/warp{current_views}.png", color_warps[:, :, ::-1])
 
             preds = pipeline(images=image, nframe=nframe_new, cond_num=args.cond_num,
                              key_rescale=args.key_rescale, height=h, width=w, intrinsics=intrinsic,
@@ -254,35 +273,14 @@ def eval(args, config, data, pipeline, data_args: dict):
                              output_type="np", config=config_copy, tag=["custom"] * image.shape[0],
                              class_label=args.class_label, depth=depth, vae=pipeline.vae, generator=generator).images  # [f,h,w,c]
             print("Time used:", time.time() - st)
-            print(preds.shape)
-            preds = preds[args.cond_num:]
-            print(preds.shape)
+            preds = preds[args.cond_num:] # TODO kinda want to see how the reference image looks
             preds = (preds * 255).astype(np.uint8)
 
-            # Store images and along with their names and locations in a json in the way the gaussian splatting works 
-            new_transform = data_args.copy() 
-            new_transform.pop("trajectory")
-            new_transform["frames"] = data_args["trajectory"]
-            parent_path = Path(config.save_path)
-            img_paths_in_order = [] 
+            # Store images 
             for j in range(preds.shape[0]):
-                frame = new_transform["frames"][j]
-                
-                if frame["file_path"] is not None: 
-                    file_name = frame["file_path"]
-                else: 
-                    file_name = f"images/view_{j}.png"
-                
-                print(j, file_name)
-                
-                img_paths_in_order.append(str(parent_path / file_name))
-                cv2.imwrite(parent_path / file_name, preds[j, :, :, ::-1])
-                
+                cv2.imwrite(file_names[current_views[j]], preds[j, :, :, ::-1])
 
-            with open(parent_path / "transforms.json", "w", encoding="utf-8") as f:
-                json.dump(new_transform, f, ensure_ascii=False, indent=2)      
-
-            return img_paths_in_order 
+        return img_paths_in_order 
 
 
 
