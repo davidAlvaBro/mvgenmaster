@@ -227,11 +227,10 @@ def eval(args, config, data, pipeline, data_args: dict):
 
     N_target = data['tar_intrinsic'].shape[0]
     gen_num = config.nframe - args.cond_num
-    img_paths_in_order = [] 
 
     # Save reference image 
     ref_img = ToPILImage()((data['ref_images'][0] + 1) / 2)
-    ref_img.save(parent_path / file_names[new_transform["trajectory_ref"]])
+    ref_img.save(file_names[new_transform["trajectory_ref"]])
 
     with torch.no_grad(), torch.autocast("cuda"):
         # Only generating 'gen_num' new frames each iteration
@@ -280,7 +279,7 @@ def eval(args, config, data, pipeline, data_args: dict):
             for j in range(preds.shape[0]):
                 cv2.imwrite(file_names[current_views[j]], preds[j, :, :, ::-1])
 
-        return img_paths_in_order 
+        return file_names 
 
 
 
