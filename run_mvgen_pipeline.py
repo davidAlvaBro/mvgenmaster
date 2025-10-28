@@ -214,11 +214,11 @@ def eval(args, config, data, pipeline, data_args: dict):
     parent_path = Path(config.save_path)
     file_names = [] 
     for i in range(len(new_transform["frames"])): 
-        frame = new_transform["frames"][j]
+        frame = new_transform["frames"][i]
         if frame["file_path"] is not None: 
             file_name = frame["file_path"]
         else: 
-            file_name = f"images/view{j}.png"
+            file_name = f"images/view{i}.png"
             frame["file_path"] = file_name # TODO: Check that this object is a reference 
         file_names.append(str(parent_path / file_name))
     
