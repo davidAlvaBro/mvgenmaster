@@ -262,17 +262,23 @@ def eval(args, config, data, pipeline, data_args: dict):
             new_transform.pop("trajectory")
             new_transform["frames"] = data_args["trajectory"]
             parent_path = Path(config.save_path)
+            img_paths_in_order = [] 
             for j in range(preds.shape[0]):
                 frame = new_transform["frames"][j]
-                file_name = f"images/{data['tar_names'][i::iter_times][j].split('.')[0]}.png"
-                cv2.imwrite(parent_path / file_name, preds[j, :, :, ::-1])
                 
                 if frame["file_path"] is not None: 
                     file_name = frame["file_path"]
-                    cv2.imwrite(parent_path / file_name, preds[j, :, :, ::-1])
+                else: 
+                    file_name = f"images/view_{j}.png"
                 
+                img_paths_in_order.append(str(parent_path / file_name))
+                cv2.imwrite(parent_path / file_name, preds[j, :, :, ::-1])
+                
+
             with open(parent_path / "transforms.json", "w", encoding="utf-8") as f:
-                json.dump(new_transform, f, ensure_ascii=False, indent=2)           
+                json.dump(new_transform, f, ensure_ascii=False, indent=2)      
+
+            return img_paths_in_order 
 
 
 
@@ -407,9 +413,7 @@ if __name__ == '__main__':
     data = load_dataset(args, config, reference_cam, target_cam, [img_pth], [ref_n], [depth.cpu().numpy()])
 
     os.makedirs(f"{save_path}/images", exist_ok=True)
-    eval(args, config, data, pipeline, data_args)
+    results = eval(args, config, data, pipeline, data_args)
 
-    results = glob(f"{config.save_path}/images/view*.png")
-    results.sort(key=lambda x: int(x.split('/')[-1].replace(".png", "").replace("view", "").replace("_ref", "")))
     clip = ImageSequenceClip(results, fps=15)
     clip.write_videofile(f"{config.save_path}/output.mp4", fps=15)
