@@ -19,7 +19,7 @@ def load_cameras(parent_dir: Path, args: dict):
 
     intrinsics = [] 
     extrinsics = []
-    for cam in args["trajectory"]: 
+    for cam in (args["trajectory"] + args["eval"]): 
         intrinsic = np.array([[cam["fl_x"], 0, cam["cx"]],
                         [0, cam["fl_y"], cam["cy"]],
                         [0, 0, 1]])
