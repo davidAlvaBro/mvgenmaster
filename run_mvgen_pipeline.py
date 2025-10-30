@@ -248,8 +248,8 @@ def eval(args, config, data, pipeline, data_args: dict):
                 depth = torch.cat([data["ref_depth"], torch.zeros((gen_num_, 1, h, w), dtype=torch.float32)], dim=0).to("cuda")
                 # Saving the depth map so that it can be used for a sparse point cloud in the GS pipeline 
                 arr = depth.detach().to("cpu").numpy().squeeze()
-                depth_map_path = parent_path / "ref_depth_map.npy"
-                np.save(depth_map_path, arr)  
+                depth_map_path = "ref_depth_map.npy"
+                np.save(parent_path / depth_map_path, arr)  
                 new_transform["depth_map"] = str(depth_map_path)
             else:
                 depth = None
