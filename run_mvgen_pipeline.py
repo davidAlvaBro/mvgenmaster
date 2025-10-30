@@ -215,14 +215,22 @@ def eval(args, config, data, pipeline, data_args: dict):
     file_names = [] 
     # names of images and aspect ratios might change 
     # We also have to do it for the evaluation frames so that we can messure PSNR drop
+    w, h = data["w"], data["h"]
     for i, frame in enumerate(new_transform["frames"] + new_transform["eval"]): 
         if frame["file_path"] is not None: 
             file_name = frame["file_path"]
         else: 
             file_name = f"images/view{i}.png"
             frame["file_path"] = file_name 
-        frame["w"] = data["w"]
-        frame["h"] = data["h"]
+        old_h, old_w = frame["h"], frame["w"]
+        scale_h, scale_w = h / old_h, w / old_w
+        frame["w"] = w
+        frame["h"] = h
+        frame["fl_x"] = frame["fl_x"] * scale_w
+        frame["fl_y"] = frame["fl_y"] * scale_h
+        frame["cx"] = frame["cx"] * scale_w
+        frame["cy"] = frame["cy"] * scale_h
+
         file_names.append(str(parent_path / file_name))
     
 
