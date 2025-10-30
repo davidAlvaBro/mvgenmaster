@@ -222,8 +222,6 @@ def eval(args, config, data, pipeline, data_args: dict):
             frame["file_path"] = file_name 
         file_names.append(str(parent_path / file_name))
     
-    with open(parent_path / "transforms.json", "w", encoding="utf-8") as f:
-        json.dump(new_transform, f, ensure_ascii=False, indent=2)      
 
     N_target = data['tar_intrinsic'].shape[0]
     gen_num = config.nframe - args.cond_num
@@ -248,6 +246,11 @@ def eval(args, config, data, pipeline, data_args: dict):
             extrinsic = torch.cat([data["ref_extrinsic"], data["tar_extrinsic"][i::iter_times]], dim=0).to("cuda")
             if data["ref_depth"] is not None:
                 depth = torch.cat([data["ref_depth"], torch.zeros((gen_num_, 1, h, w), dtype=torch.float32)], dim=0).to("cuda")
+                # Saving the depth map so that it can be used for a sparse point cloud in the GS pipeline 
+                arr = depth.detach().to("cpu").numpy().squeeze()
+                depth_map_path = parent_path / "ref_depth_map.npy"
+                np.save(depth_map_path, arr)  
+                new_transform["depth_map"] = str(depth_map_path)
             else:
                 depth = None
 
@@ -279,8 +282,12 @@ def eval(args, config, data, pipeline, data_args: dict):
             # Store images 
             for j in range(preds.shape[0]):
                 cv2.imwrite(file_names_without_reference[current_views[j]], preds[j, :, :, ::-1])
+    
+    # Store the transforms.json for the GS pipeline 
+    with open(parent_path / "transforms.json", "w", encoding="utf-8") as f:
+        json.dump(new_transform, f, ensure_ascii=False, indent=2)      
 
-        return file_names 
+    return file_names 
 
 
 
