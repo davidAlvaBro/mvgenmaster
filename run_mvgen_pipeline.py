@@ -216,7 +216,6 @@ def eval(args, config, data, pipeline, data_args: dict):
     # names of images and aspect ratios might change 
     # We also have to do it for the evaluation frames so that we can messure PSNR drop
     for i, frame in enumerate(new_transform["frames"] + new_transform["eval"]): 
-        frame = new_transform["frames"][i]
         if frame["file_path"] is not None: 
             file_name = frame["file_path"]
         else: 
