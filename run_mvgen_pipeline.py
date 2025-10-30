@@ -203,7 +203,7 @@ def load_dataset(args, config, reference_cam, target_cam, reference_list, ref_nu
 
     return {"ref_images": ref_images, "ref_intrinsic": ref_intrinsic, "tar_intrinsic": tar_intrinsic,
             "ref_extrinsic": ref_extrinsic, "tar_extrinsic": tar_extrinsic, "ref_depth": ref_depth,
-            "ref_names": ref_names, "tar_names": tar_names}
+            "ref_names": ref_names, "tar_names": tar_names, "h": h, "w": w}
 
 
 def eval(args, config, data, pipeline, data_args: dict):
@@ -213,6 +213,7 @@ def eval(args, config, data, pipeline, data_args: dict):
     new_transform["frames"] = data_args["trajectory"]
     parent_path = Path(config.save_path)
     file_names = [] 
+    # names of images and aspect ratios might change 
     for i in range(len(new_transform["frames"])): 
         frame = new_transform["frames"][i]
         if frame["file_path"] is not None: 
@@ -220,6 +221,8 @@ def eval(args, config, data, pipeline, data_args: dict):
         else: 
             file_name = f"images/view{i}.png"
             frame["file_path"] = file_name 
+        frame["w"] = data["w"]
+        frame["h"] = data["h"]
         file_names.append(str(parent_path / file_name))
     
 
@@ -247,9 +250,9 @@ def eval(args, config, data, pipeline, data_args: dict):
             if data["ref_depth"] is not None:
                 depth = torch.cat([data["ref_depth"], torch.zeros((gen_num_, 1, h, w), dtype=torch.float32)], dim=0).to("cuda")
                 # Saving the depth map so that it can be used for a sparse point cloud in the GS pipeline 
-                arr = depth.detach().to("cpu").numpy().squeeze()
+                depth_ref_to_save = data["ref_depth"].detach().to("cpu").numpy().squeeze()
                 depth_map_path = "ref_depth_map.npy"
-                np.save(parent_path / depth_map_path, arr)  
+                np.save(parent_path / depth_map_path, depth_ref_to_save)  
                 new_transform["depth_map"] = str(depth_map_path)
             else:
                 depth = None
