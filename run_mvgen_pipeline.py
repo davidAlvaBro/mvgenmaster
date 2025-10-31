@@ -176,7 +176,6 @@ def load_dataset(args, config, reference_cam, target_cam, reference_list, ref_nu
     ref_extrinsic = torch.stack([torch.tensor(K, dtype=torch.float32) for K in ref_extrinsic], dim=0)
     tar_extrinsic = torch.stack([torch.tensor(K, dtype=torch.float32) for K in tar_extrinsic], dim=0)
 
-    # 外参t归一化
     if config.camera_longest_side is not None:
         extrinsic = torch.cat([ref_extrinsic, tar_extrinsic], dim=0)  # [N,4,4]
         c2ws = extrinsic.inverse()
@@ -189,6 +188,7 @@ def load_dataset(args, config, reference_cam, target_cam, reference_list, ref_nu
     else:
         rescale = 1.0
 
+    # Why are we rescaling the depth
     if len(ref_depth) > 0:
         ref_depth = [r * rescale for r in ref_depth]
         ref_depth = torch.stack(ref_depth, dim=0)
@@ -203,7 +203,7 @@ def load_dataset(args, config, reference_cam, target_cam, reference_list, ref_nu
 
     return {"ref_images": ref_images, "ref_intrinsic": ref_intrinsic, "tar_intrinsic": tar_intrinsic,
             "ref_extrinsic": ref_extrinsic, "tar_extrinsic": tar_extrinsic, "ref_depth": ref_depth,
-            "ref_names": ref_names, "tar_names": tar_names, "h": h, "w": w}
+            "ref_names": ref_names, "tar_names": tar_names, "h": h, "w": w, "scale": rescale}
 
 
 def eval(args, config, data, pipeline, data_args: dict):
@@ -260,7 +260,7 @@ def eval(args, config, data, pipeline, data_args: dict):
                 # Saving the depth map so that it can be used for a sparse point cloud in the GS pipeline 
                 depth_ref_to_save = data["ref_depth"].detach().to("cpu").numpy().squeeze()
                 depth_map_path = "ref_depth_map.npy"
-                np.save(parent_path / depth_map_path, depth_ref_to_save)  
+                np.save(parent_path / depth_map_path, depth_ref_to_save*data["rescale"])  
                 new_transform["depth_map"] = str(depth_map_path)
             else:
                 depth = None
