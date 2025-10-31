@@ -260,7 +260,7 @@ def eval(args, config, data, pipeline, data_args: dict):
                 # Saving the depth map so that it can be used for a sparse point cloud in the GS pipeline 
                 depth_ref_to_save = data["ref_depth"].detach().to("cpu").numpy().squeeze()
                 depth_map_path = "ref_depth_map.npy"
-                np.save(parent_path / depth_map_path, depth_ref_to_save*data["rescale"])  
+                np.save(parent_path / depth_map_path, depth_ref_to_save*data["scale"])  
                 new_transform["depth_map"] = str(depth_map_path)
             else:
                 depth = None
