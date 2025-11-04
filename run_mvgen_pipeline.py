@@ -350,7 +350,7 @@ if __name__ == '__main__':
         data_args = json.load(file)
 
     # Cameras and reference image # TODO fix this mess...
-    image, img_pth, ref_n, extrinsics, intrinsics, ref_intrinsics = load_cameras(Path(args.working_dir) / Path(args.input_path).parent.name, data_args)
+    image, img_pth, ref_n, extrinsics, intrinsics, ref_intrinsics, Hs, Ws = load_cameras(Path(args.working_dir) / Path(args.input_path).parent.name, data_args)
     h, w, _ = image.shape
     c2ws_all = [torch.tensor(ex, dtype=torch.float32) for ex in extrinsics]
     w2cs_all = [c2w.inverse() for c2w in c2ws_all]
@@ -374,7 +374,8 @@ if __name__ == '__main__':
     points3d = points3d.cpu().numpy()
     colors = colors.cpu().numpy()
 
-    # save pointcloud and cameras
+    # save pointcloud 
+    # TODO understand what the hell happenes here? 
     scene = trimesh.Scene()
     for i in range(len(c2ws_all)):
         add_scene_cam(scene, c2ws_all[i], CAM_COLORS[i % len(CAM_COLORS)], None, imsize=(512, 512), screen_width=0.03)
@@ -383,7 +384,10 @@ if __name__ == '__main__':
     _ = pcd.export(f"{save_path}/pcd.ply")
     scene.export(file_obj=f"{save_path}/cameras.glb")
 
-    reference_cam = {"h": h, "w": w, "intrinsic": K.tolist()}
+    # Each camera has its own intrinsics and extrinsics
+    intrinsic_for_image_gen = torch.tensor(intrinsics[ref_n], dtype=torch.float32, device=device)
+    h_image_gen, w_image_gen = Hs[ref_n], Ws[ref_n]
+    reference_cam = {"h": h_image_gen, "w": w_image_gen, "intrinsic": intrinsic_for_image_gen.tolist()}
     reference_cam["extrinsic"] = dict()
     target_cam = copy.deepcopy(reference_cam)
     reference_cam["extrinsic"][f"view{str(ref_n).zfill(3)}_ref"] = w2cs_all[ref_n].tolist()
