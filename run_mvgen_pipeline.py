@@ -350,7 +350,7 @@ if __name__ == '__main__':
         data_args = json.load(file)
 
     # Cameras and reference image # TODO fix this mess...
-    image, img_pth, ref_n, extrinsics, intrinsics = load_cameras(Path(args.working_dir) / args.input_path.parent.name, data_args)
+    image, img_pth, ref_n, extrinsics, intrinsics, ref_intrinsics = load_cameras(Path(args.working_dir) / args.input_path.parent.name, data_args)
     h, w, _ = image.shape
     c2ws_all = [torch.tensor(ex, dtype=torch.float32) for ex in extrinsics]
     w2cs_all = [c2w.inverse() for c2w in c2ws_all]
@@ -359,10 +359,10 @@ if __name__ == '__main__':
     depth_pro_model, transform = create_model_and_transforms(device=torch.device("cuda"))
     depth_pro_model.eval()
     image = transform(image)    
-    prediction = depth_pro_model.infer(image, f_px=intrinsics[ref_n][0,0]) # Depth model wants focal length
+    prediction = depth_pro_model.infer(image, f_px=ref_intrinsics[0,0]) # Depth model wants focal length
     depth = prediction["depth"]  # Depth in [m].
 
-    K = torch.tensor(intrinsics[ref_n], dtype=torch.float32, device=device)
+    K = torch.tensor(ref_intrinsics, dtype=torch.float32, device=device)
     K_inv = K.inverse()
 
     # 3d sparse point cloud

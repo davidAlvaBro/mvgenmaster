@@ -30,5 +30,9 @@ def load_cameras(parent_dir: Path, args: dict):
         # On the right rotates camera matrix to point the opposite way 
         extrinsics.append(flip_ynz @ F @ flip_ynz)
         intrinsics.append(intrinsic) 
+    
+    ref_intrinsics = np.array([[ref_cam["fl_x"], 0, ref_cam["cx"]],
+                        [0, ref_cam["fl_y"], ref_cam["cy"]],
+                        [0, 0, 1]])
 
-    return image, img_pth, ref_n, extrinsics, intrinsics
+    return image, img_pth, ref_n, extrinsics, intrinsics, ref_intrinsics
