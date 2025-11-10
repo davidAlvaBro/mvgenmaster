@@ -35,13 +35,14 @@ def load_cameras(parent_dir: Path, args: dict):
         # On the right rotates camera matrix to point the opposite way 
         extrinsics.append(flip_ynz @ F @ flip_ynz)
         intrinsics.append(intrinsic) 
-        names.append(f"view{str(i).zfill(3)}_ref")
+        names.append(f"view{str(i).zfill(3)}")
     
     ref_intrinsics = np.array([[ref_cam["fl_x"], 0, ref_cam["cx"]],
                         [0, ref_cam["fl_y"], ref_cam["cy"]],
                         [0, 0, 1]])
     # This overwrite only does something if the reference image is modified differently than traj
     # which is only the case for controlnet generated images
-    intrinsics[ref] = ref_intrinsics 
+    Hs[ref_n], Ws[ref_n] = ref_cam["h"], ref_cam["w"]
+    intrinsics[ref_n] = ref_intrinsics 
 
     return image, ref_n, extrinsics, intrinsics, Hs, Ws, names
