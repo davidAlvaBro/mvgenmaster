@@ -95,113 +95,82 @@ def save_16bit_png_depth(depth: np.ndarray, depth_png: str):
         print("ERROR DEPTH FILE:", depth_png)
         raise NotImplementedError
 
-
-def load_dataset(args, config, reference_cam, target_cam, reference_list, ref_numbers, depth_list):
+def load_dataset(args, config, reference_cam, target_cams, reference_img, depth_img):
+    """
+    Preprocess camera parameters and image size to fit the MVGenMaster network
+    """
+    # Valid ratios 
     ratio_set = json.load(open(f"./{args.model_dir}/ratio_set.json", "r"))
     ratio_dict = dict()
     for h, w in ratio_set:
         ratio_dict[h / w] = [h, w]
     ratio_list = list(ratio_dict.keys())
+    h_img, w_img, _ = reference_img.shape
+    print(f'Original image shape is height:{h_img}, width:{w_img}.')
+    ratio = h_img / w_img
+    sub = [abs(ratio - r) for r in ratio_list]
+    [h, w] = ratio_dict[ratio_list[np.argmin(sub)]]
+    print(f'Closest valid ratio is height:{h}, width:{w}.')
+    # Resize image and depth 
+    img = Image.fromarray(reference_img)
+    img = img.resize((w, h), Image.LANCZOS if h < h_img else Image.BICUBIC)
+    depth_img = cv2.resize(depth_img, (w, h), interpolation=cv2.INTER_NEAREST)
+    img = Compose([ToTensor(), Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])(img).unsqueeze(0)
+    depth_img = Compose([ToTensor()])(depth_img).unsqueeze(0)
 
-    # load dataset
-    print("Loading dataset...")
-    intrinsic = np.array(reference_cam["intrinsic"])
-    tar_names = list(target_cam["extrinsic"].keys())
+    # Fix reference camera parameters 
+    ref_names = list(reference_cam.keys())
+    ref_intrinsic = np.array(reference_cam[ref_names[0]]["intrinsic"])
+    ref_extrinsic = np.array(reference_cam[ref_names[0]]["extrinsic"])
+    ref_h, ref_w = reference_cam[ref_names[0]]["h"], reference_cam[ref_names[0]]["w"]
+    ref_intrinsic[0] *= w/ref_w
+    ref_intrinsic[1] *= h/ref_h
+
+    # Fix target frames camera parameters 
+    tar_names = list(target_cams.keys())
     tar_names.sort()
-    if args.target_limit is not None:
-        tar_names = tar_names[:args.target_limit]
-    tar_extrinsic = [np.array(target_cam["extrinsic"][k]) for k in tar_names]
+    tar_extrinsic = []
+    tar_intrinsic = []
+    for tar_name in tar_names:
+        cam = target_cams[tar_name]
+        intrinsic = cam["intrinsic"]
+        extrinsic = cam["extrinsic"]
+        tar_h, tar_w = cam["h"], cam["w"]
+        intrinsic[0] *= w/tar_w
+        intrinsic[1] *= h/tar_h
+        tar_extrinsic.append(extrinsic)
+        tar_intrinsic.append(intrinsic)
 
-    if args.cond_num == 1:
-        reference_list = [reference_list[0]]
-    elif args.cond_num == 2:
-        reference_list = [reference_list[0], reference_list[-1]]
-    elif args.cond_num == 3:
-        reference_list = reference_list[:3]
-    else:
-        pass
-
-    ref_images = []
-    ref_names = []
-    ref_extrinsic = []
-    ref_intrinsic = []
-    ref_depth = []
-    h, w = None, None
-    for i, im in enumerate(tqdm(reference_list, desc="loading reference images")):
-        img = Image.open(im).convert("RGB")
-        intrinsic_ = copy.deepcopy(intrinsic)
-        im = f"view{str(ref_numbers[i]).zfill(3)}_ref"
-        if im.split("/")[-1] in reference_cam["extrinsic"]:
-            extrinsic_ = np.array(reference_cam["extrinsic"][im.split("/")[-1]])
-        else:
-            extrinsic_ = np.array(reference_cam["extrinsic"][im.split("/")[-1].split(".")[0]])
-        ref_extrinsic.append(extrinsic_)
-        ref_names.append(im.split('/')[-1])
-
-        origin_w, origin_h = img.size
-
-        # load monocular depth
-        if config.model_cfg.get("enable_depth", False):
-            depth = depth_list[i]
-            depth = cv2.resize(depth, (origin_w, origin_h), interpolation=cv2.INTER_NEAREST)
-        else:
-            depth = None
-
-        if h is None or w is None:
-            ratio = origin_h / origin_w
-            sub = [abs(ratio - r) for r in ratio_list]
-            [h, w] = ratio_dict[ratio_list[np.argmin(sub)]]
-            print(f'height:{h}, width:{w}.')
-        img = img.resize((w, h), Image.LANCZOS if h < origin_h else Image.BICUBIC)
-        if depth is not None:
-            depth = cv2.resize(depth, (w, h), interpolation=cv2.INTER_NEAREST)
-        new_w, new_h = img.size
-        # rescale intrinsic
-        intrinsic_[0, :] *= (new_w / reference_cam['w'])
-        intrinsic_[1, :] *= (new_h / reference_cam['h'])
-
-        img = Compose([ToTensor(), Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])(img)
-        if depth is not None:
-            depth = Compose([ToTensor()])(depth)
-
-        ref_images.append(img)
-        ref_intrinsic.append(intrinsic_)
-        if depth is not None:
-            ref_depth.append(depth)
-
-    ref_images = torch.stack(ref_images, dim=0)
-    tar_intrinsic = [ref_intrinsic[0]] * len(tar_extrinsic)
-    ref_intrinsic = torch.stack([torch.tensor(K, dtype=torch.float32) for K in ref_intrinsic], dim=0)
+    # MVGenMaster expectes (N, 3, 3) for cameras 
+    ref_extrinsic = torch.tensor(ref_extrinsic, dtype=torch.float32).unsqueeze(0)
+    ref_intrinsic = torch.tensor(ref_intrinsic, dtype=torch.float32).unsqueeze(0)
     tar_intrinsic = torch.stack([torch.tensor(K, dtype=torch.float32) for K in tar_intrinsic], dim=0)
-    ref_extrinsic = torch.stack([torch.tensor(K, dtype=torch.float32) for K in ref_extrinsic], dim=0)
     tar_extrinsic = torch.stack([torch.tensor(K, dtype=torch.float32) for K in tar_extrinsic], dim=0)
 
     if config.camera_longest_side is not None:
+        # MVGen is trained on scenes of specific sizes? 
+        # Only the depth map and the camera extrinsic translations defines world coordinates
         extrinsic = torch.cat([ref_extrinsic, tar_extrinsic], dim=0)  # [N,4,4]
         c2ws = extrinsic.inverse()
         max_scale = torch.max(c2ws[:, :3, -1], dim=0)[0]
         min_scale = torch.min(c2ws[:, :3, -1], dim=0)[0]
         max_size = torch.max(max_scale - min_scale).item()
         rescale = config.camera_longest_side / max_size if max_size > config.camera_longest_side else 1.0
+        # The translation for w2c is proportional to c2w 
         ref_extrinsic[:, :3, 3:4] *= rescale
         tar_extrinsic[:, :3, 3:4] *= rescale
+        ref_depth = rescale*depth_img
     else:
         rescale = 1.0
 
-    # Why are we rescaling the depth
-    if len(ref_depth) > 0:
-        ref_depth = [r * rescale for r in ref_depth]
-        ref_depth = torch.stack(ref_depth, dim=0)
-    else:
-        ref_depth = None
-
+    # Names that could be deleted
     camera_poses = {"h": h, "w": w, "intrinsic": ref_intrinsic[0].numpy().tolist(), "extrinsic": dict()}
     for i in range(len(ref_names)):
         camera_poses['extrinsic'][ref_names[i].split('.')[0].replace('_ref', '') + ".png"] = ref_extrinsic[i].numpy().tolist()
     for i in range(len(tar_names)):
         camera_poses['extrinsic'][tar_names[i].split('.')[0].replace('_ref', '') + ".png"] = tar_extrinsic[i].numpy().tolist()
 
-    return {"ref_images": ref_images, "ref_intrinsic": ref_intrinsic, "tar_intrinsic": tar_intrinsic,
+    return {"ref_images": reference_img, "ref_intrinsic": ref_intrinsic, "tar_intrinsic": tar_intrinsic,
             "ref_extrinsic": ref_extrinsic, "tar_extrinsic": tar_extrinsic, "ref_depth": ref_depth,
             "ref_names": ref_names, "tar_names": tar_names, "h": h, "w": w, "scale": rescale}
 
@@ -304,8 +273,10 @@ def eval(args, config, data, pipeline, data_args: dict):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="build cam traj")
-    parser.add_argument("--working_dir", type=str, default="../data/set2")
-    parser.add_argument("--input_path", type=str, default="../data/set2/transforms.json")
+    # parser.add_argument("--working_dir", type=str, default="../data/test")
+    # parser.add_argument("--input_path", type=str, default="../data/test/transforms.json")
+    parser.add_argument("--working_dir", type=str, default="../data/test_controlnet/controlnet")
+    parser.add_argument("--input_path", type=str, default="../data/test_controlnet/controlnet/transforms.json")
     parser.add_argument("--model_dir", type=str, default="check_points/pretrained_model", help="model directory.")
     parser.add_argument("--output_path", type=str, default="mvgen")
     parser.add_argument("--val_cfg", type=float, default=2.0)
@@ -350,26 +321,25 @@ if __name__ == '__main__':
         data_args = json.load(file)
 
     # Cameras and reference image # TODO fix this mess...
-    image, img_pth, ref_n, extrinsics, intrinsics, ref_intrinsics, Hs, Ws = load_cameras(Path(args.working_dir) / Path(args.input_path).parent.name, data_args)
-    h, w, _ = image.shape
+    img, ref_n, extrinsics, intrinsics, Hs, Ws, view_names = load_cameras(Path(args.working_dir), data_args)
+    h, w, _ = img.shape
     c2ws_all = [torch.tensor(ex, dtype=torch.float32) for ex in extrinsics]
     w2cs_all = [c2w.inverse() for c2w in c2ws_all]
+    Ks = torch.tensor(intrinsics, dtype=torch.float32, device=device)
+    K_invs = Ks.inverse()
 
     # Get depth for 3d point cloud 
     depth_pro_model, transform = create_model_and_transforms(device=torch.device("cuda"))
     depth_pro_model.eval()
-    image = transform(image)    
-    prediction = depth_pro_model.infer(image, f_px=ref_intrinsics[0,0]) # Depth model wants focal length
+    image = transform(img)    
+    prediction = depth_pro_model.infer(image, f_px=intrinsics[ref_n][0,0]) # Depth model wants focal length
     depth = prediction["depth"]  # Depth in [m].
-
-    K = torch.tensor(ref_intrinsics, dtype=torch.float32, device=device)
-    K_inv = K.inverse()
 
     # 3d sparse point cloud
     points2d = torch.stack(torch.meshgrid(torch.arange(w, dtype=torch.float32),
                                             torch.arange(h, dtype=torch.float32), indexing="xy"), -1).to(device)  # [h,w,2]
     points3d = points_padding(points2d).reshape(h * w, 3)  # [hw,3]
-    points3d = (K_inv @ points3d.T * depth.reshape(1, h * w)).T
+    points3d = (K_invs[ref_n] @ points3d.T * depth.reshape(1, h * w)).T
     colors = ((image + 1) / 2 * 255).to(torch.uint8).permute(1, 2, 0).reshape(h * w, 3)
     points3d = points3d.cpu().numpy()
     colors = colors.cpu().numpy()
@@ -385,16 +355,13 @@ if __name__ == '__main__':
     scene.export(file_obj=f"{save_path}/cameras.glb")
 
     # Each camera has its own intrinsics and extrinsics
-    intrinsic_for_image_gen = torch.tensor(intrinsics[ref_n], dtype=torch.float32, device=device)
-    h_image_gen, w_image_gen = Hs[ref_n], Ws[ref_n]
-    reference_cam = {"h": h_image_gen, "w": w_image_gen, "intrinsic": intrinsic_for_image_gen.tolist()}
-    reference_cam["extrinsic"] = dict()
-    target_cam = copy.deepcopy(reference_cam)
-    reference_cam["extrinsic"][f"view{str(ref_n).zfill(3)}_ref"] = w2cs_all[ref_n].tolist()
-
-    for i in range(len(w2cs_all)):
-        if i != ref_n:
-            target_cam["extrinsic"][f"view{str(i).zfill(3)}"] = w2cs_all[i].tolist()
+    target_cams = {}
+    for (h, w, e, i, n) in zip(Hs, Ws, w2cs_all, intrinsics, view_names): 
+        target_cams[n] = {'h': h, 
+                          'w': w,
+                          'extrinsic': e,
+                          'intrinsic': i}
+    reference_cam = {view_names[ref_n] + "_ref": target_cams.pop(view_names[ref_n])}
 
     ### Step2: generate multi-view images ###
     # init model
@@ -434,7 +401,7 @@ if __name__ == '__main__':
     # load dataset
     args.dataset_dir = save_path
     config.save_path = save_path
-    data = load_dataset(args, config, reference_cam, target_cam, [img_pth], [ref_n], [depth.cpu().numpy()])
+    data = load_dataset(args, config, reference_cam, target_cams, img, depth.cpu().numpy())
 
     os.makedirs(f"{save_path}/images", exist_ok=True)
     results = eval(args, config, data, pipeline, data_args)
