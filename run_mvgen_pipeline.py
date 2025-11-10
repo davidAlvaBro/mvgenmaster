@@ -170,7 +170,7 @@ def load_dataset(args, config, reference_cam, target_cams, reference_img, depth_
     for i in range(len(tar_names)):
         camera_poses['extrinsic'][tar_names[i].split('.')[0].replace('_ref', '') + ".png"] = tar_extrinsic[i].numpy().tolist()
 
-    return {"ref_images": reference_img, "ref_intrinsic": ref_intrinsic, "tar_intrinsic": tar_intrinsic,
+    return {"ref_images": img, "ref_intrinsic": ref_intrinsic, "tar_intrinsic": tar_intrinsic,
             "ref_extrinsic": ref_extrinsic, "tar_extrinsic": tar_extrinsic, "ref_depth": ref_depth,
             "ref_names": ref_names, "tar_names": tar_names, "h": h, "w": w, "scale": rescale}
 
