@@ -277,6 +277,7 @@ if __name__ == '__main__':
     # parser.add_argument("--input_path", type=str, default="../data/test/transforms.json")
     parser.add_argument("--working_dir", type=str, default="../data/test_controlnet/controlnet")
     parser.add_argument("--input_path", type=str, default="../data/test_controlnet/controlnet/transforms.json")
+    parser.add_argument("--added_img_path", type=str, default="")
     parser.add_argument("--model_dir", type=str, default="check_points/pretrained_model", help="model directory.")
     parser.add_argument("--output_path", type=str, default="mvgen")
     parser.add_argument("--val_cfg", type=float, default=2.0)
@@ -314,6 +315,7 @@ if __name__ == '__main__':
     device = "cuda"
 
     save_path = Path(args.working_dir) / args.output_path
+    ref_img_folder = Path(args.working_dir) if args.added_img_path == "" else Path(args.working_dir) / args.added_img_path
     save_path.mkdir(parents=True, exist_ok=True)
     args.cond_num = 1
 
@@ -321,7 +323,7 @@ if __name__ == '__main__':
         data_args = json.load(file)
 
     # Cameras and reference image # TODO fix this mess...
-    img, ref_n, extrinsics, intrinsics, Hs, Ws, view_names = load_cameras(Path(args.working_dir), data_args)
+    img, ref_n, extrinsics, intrinsics, Hs, Ws, view_names = load_cameras(ref_img_folder, data_args)
     h, w, _ = img.shape
     c2ws_all = [torch.tensor(ex, dtype=torch.float32) for ex in extrinsics]
     w2cs_all = [c2w.inverse() for c2w in c2ws_all]
