@@ -211,6 +211,14 @@ def eval(args, config, data, pipeline, data_args: dict):
     ref_img.save(file_names[new_transform["trajectory_ref"]])
     file_names_without_reference = file_names[:new_transform["trajectory_ref"]] + file_names[new_transform["trajectory_ref"]+1:]
 
+    # Save depth map path in transforms.json
+    depth_map_path = "ref_depth_map.npy"
+    new_transform["depth_map"] = str(depth_map_path)
+
+    # Store the transforms.json for the GS pipeline 
+    with open(parent_path / "transforms.json", "w", encoding="utf-8") as f:
+        json.dump(new_transform, f, ensure_ascii=False, indent=2)   
+
     with torch.no_grad(), torch.autocast("cuda"):
         # Only generating 'gen_num' new frames each iteration
         iter_times = N_target // gen_num
@@ -228,9 +236,7 @@ def eval(args, config, data, pipeline, data_args: dict):
                 depth = torch.cat([data["ref_depth"], torch.zeros((gen_num_, 1, h, w), dtype=torch.float32)], dim=0).to("cuda")
                 # Saving the depth map so that it can be used for a sparse point cloud in the GS pipeline 
                 depth_ref_to_save = data["ref_depth"].detach().to("cpu").numpy().squeeze()
-                depth_map_path = "ref_depth_map.npy"
                 np.save(parent_path / depth_map_path, depth_ref_to_save/data["scale"])  
-                new_transform["depth_map"] = str(depth_map_path)
             else:
                 depth = None
 
@@ -262,10 +268,7 @@ def eval(args, config, data, pipeline, data_args: dict):
             # Store images 
             for j in range(preds.shape[0]):
                 cv2.imwrite(file_names_without_reference[current_views[j]], preds[j, :, :, ::-1])
-    
-    # Store the transforms.json for the GS pipeline 
-    with open(parent_path / "transforms.json", "w", encoding="utf-8") as f:
-        json.dump(new_transform, f, ensure_ascii=False, indent=2)      
+       
 
     return file_names 
 
@@ -275,8 +278,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="build cam traj")
     # parser.add_argument("--working_dir", type=str, default="../data/test")
     # parser.add_argument("--input_path", type=str, default="../data/test/transforms.json")
-    parser.add_argument("--working_dir", type=str, default="../data/test_controlnet/controlnet")
-    parser.add_argument("--input_path", type=str, default="../data/test_controlnet/controlnet/transforms.json")
+    parser.add_argument("--working_dir", type=str, default="../data/success1/")
+    parser.add_argument("--input_path", type=str, default="../data/success1/transforms.json")
     parser.add_argument("--added_img_path", type=str, default="")
     parser.add_argument("--model_dir", type=str, default="check_points/pretrained_model", help="model directory.")
     parser.add_argument("--output_path", type=str, default="mvgen")
