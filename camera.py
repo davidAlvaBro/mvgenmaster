@@ -8,7 +8,7 @@ from depth_pro.utils import load_rgb
 def load_cameras(parent_dir: Path, args: dict): 
     """
     This method loads in all camera to world matrices for a given .json,
-    then translates them to 'first camera view' to 'other camera view'.
+    along with the reference image
     """
     # The reference image is selected 
     ref = args["ref"]
