@@ -327,7 +327,8 @@ if __name__ == '__main__':
 
     # Cameras and reference image # TODO fix this mess...
     img, depth, ref_n, extrinsics, intrinsics, Hs, Ws, view_names = load_cameras(ref_img_folder, data_args)
-    h, w, _ = Hs[ref_n], Ws[ref_n] # TODO check this is correct
+    depth = torch.tensor(depth, device=device)
+    h, w = Hs[ref_n], Ws[ref_n] # TODO check this is correct
     c2ws_all = [torch.tensor(ex, dtype=torch.float32) for ex in extrinsics]
     w2cs_all = [c2w.inverse() for c2w in c2ws_all]
     Ks = torch.tensor(intrinsics, dtype=torch.float32, device=device)
