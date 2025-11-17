@@ -1,9 +1,7 @@
 from pathlib import Path
-# import json
 
 import numpy as np 
-
-from depth_pro.utils import load_rgb
+from PIL import Image
 
 def load_cameras(parent_dir: Path, args: dict): 
     """
@@ -14,7 +12,10 @@ def load_cameras(parent_dir: Path, args: dict):
     ref = args["ref"]
     ref_cam = args["frames"][ref] 
     img_pth = parent_dir / ref_cam["file_path"]
-    image, _, _ = load_rgb(img_pth)
+    img_pil = Image.open(img_pth)
+    image = np.array(img_pil)
+    depth_pth = parent_dir / ref_cam["depth_path"]
+    depth = np.load(depth_pth)
     ref_n = args["trajectory_ref"]
 
     intrinsics = [] 
@@ -45,4 +46,4 @@ def load_cameras(parent_dir: Path, args: dict):
     Hs[ref_n], Ws[ref_n] = ref_cam["h"], ref_cam["w"]
     intrinsics[ref_n] = ref_intrinsics 
 
-    return image, ref_n, extrinsics, intrinsics, Hs, Ws, names
+    return image, depth, ref_n, extrinsics, intrinsics, Hs, Ws, names

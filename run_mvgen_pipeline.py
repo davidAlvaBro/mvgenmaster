@@ -18,7 +18,7 @@ from easydict import EasyDict
 from moviepy.editor import ImageSequenceClip
 from omegaconf import OmegaConf
 from scipy.spatial.transform import Rotation
-from torchvision.transforms import ToTensor, ToPILImage, Compose, Normalize
+from torchvision.transforms import ToTensor, ToPILImage, Compose, Normalize, Lambda, ConvertImageDtype
 from tqdm import tqdm
 from depth_pro.depth_pro import create_model_and_transforms
 from depth_pro.utils import load_rgb
@@ -326,19 +326,23 @@ if __name__ == '__main__':
         data_args = json.load(file)
 
     # Cameras and reference image # TODO fix this mess...
-    img, ref_n, extrinsics, intrinsics, Hs, Ws, view_names = load_cameras(ref_img_folder, data_args)
-    h, w, _ = img.shape
+    img, depth, ref_n, extrinsics, intrinsics, Hs, Ws, view_names = load_cameras(ref_img_folder, data_args)
+    h, w, _ = Hs[ref_n], Ws[ref_n] # TODO check this is correct
     c2ws_all = [torch.tensor(ex, dtype=torch.float32) for ex in extrinsics]
     w2cs_all = [c2w.inverse() for c2w in c2ws_all]
     Ks = torch.tensor(intrinsics, dtype=torch.float32, device=device)
     K_invs = Ks.inverse()
 
-    # Get depth for 3d point cloud 
-    depth_pro_model, transform = create_model_and_transforms(device=torch.device("cuda"))
-    depth_pro_model.eval()
-    image = transform(img)    
-    prediction = depth_pro_model.infer(image, f_px=intrinsics[ref_n][0,0]) # Depth model wants focal length
-    depth = prediction["depth"]  # Depth in [m].
+    transform = Compose(
+        [
+            ToTensor(),
+            Lambda(lambda x: x.to(device)),
+            Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
+            ConvertImageDtype(torch.float32),
+        ]
+    )
+
+    image = transform(img)
 
     # 3d sparse point cloud
     points2d = torch.stack(torch.meshgrid(torch.arange(w, dtype=torch.float32),
