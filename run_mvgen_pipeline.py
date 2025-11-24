@@ -177,15 +177,12 @@ def load_dataset(args, config, reference_cam, target_cams, reference_img, depth_
 
 def eval(args, config, data, pipeline, data_args: dict):
     # Bookkeeping for GS pipeline (make a new transforms.json)
-    new_transform = data_args.copy()
-    new_transform.pop("trajectory")
-    new_transform["frames"] = data_args["trajectory"]
     parent_path = Path(config.save_path)
     file_names = [] 
     # names of images and aspect ratios might change 
     # We also have to do it for the evaluation frames so that we can messure PSNR drop
     w, h = data["w"], data["h"]
-    for i, frame in enumerate(new_transform["frames"] + new_transform["eval"]): 
+    for i, frame in enumerate(data_args["frames"] + data_args["eval"]): 
         if frame["file_path"] is not None: 
             file_name = frame["file_path"]
         else: 
@@ -208,16 +205,16 @@ def eval(args, config, data, pipeline, data_args: dict):
 
     # Save reference image 
     ref_img = ToPILImage()((data['ref_images'][0] + 1) / 2)
-    ref_img.save(file_names[new_transform["trajectory_ref"]])
-    file_names_without_reference = file_names[:new_transform["trajectory_ref"]] + file_names[new_transform["trajectory_ref"]+1:]
+    ref_img.save(file_names[data_args["ref"]])
+    file_names_without_reference = file_names[:data_args["ref"]] + file_names[data_args["ref"]+1:]
 
     # Save depth map path in transforms.json
     depth_map_path = "ref_depth_map.npy"
-    new_transform["depth_map"] = str(depth_map_path)
+    data_args["depth_map"] = str(depth_map_path)
 
     # Store the transforms.json for the GS pipeline 
     with open(parent_path / "transforms.json", "w", encoding="utf-8") as f:
-        json.dump(new_transform, f, ensure_ascii=False, indent=2)   
+        json.dump(data_args, f, ensure_ascii=False, indent=2)   
 
     with torch.no_grad(), torch.autocast("cuda"):
         # Only generating 'gen_num' new frames each iteration
@@ -415,6 +412,3 @@ if __name__ == '__main__':
 
     os.makedirs(f"{save_path}/images", exist_ok=True)
     results = eval(args, config, data, pipeline, data_args)
-
-    clip = ImageSequenceClip(results, fps=15)
-    clip.write_videofile(f"{config.save_path}/output.mp4", fps=15)
