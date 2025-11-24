@@ -16,14 +16,13 @@ def load_cameras(parent_dir: Path, args: dict):
     image = np.array(img_pil)
     depth_pth = parent_dir / ref_cam["depth_path"]
     depth = np.load(depth_pth)
-    ref_n = args["trajectory_ref"]
 
     intrinsics = [] 
     extrinsics = []
     Hs = []
     Ws = []
     names = []
-    for i, cam in enumerate(args["trajectory"] + args["eval"]): 
+    for i, cam in enumerate(args["frames"] + args["eval"]): 
         Hs.append(cam["h"])
         Ws.append(cam["w"])
         intrinsic = np.array([[cam["fl_x"], 0, cam["cx"]],
@@ -37,13 +36,5 @@ def load_cameras(parent_dir: Path, args: dict):
         extrinsics.append(flip_ynz @ F @ flip_ynz)
         intrinsics.append(intrinsic) 
         names.append(f"view{str(i).zfill(3)}")
-    
-    ref_intrinsics = np.array([[ref_cam["fl_x"], 0, ref_cam["cx"]],
-                        [0, ref_cam["fl_y"], ref_cam["cy"]],
-                        [0, 0, 1]])
-    # This overwrite only does something if the reference image is modified differently than traj
-    # which is only the case for controlnet generated images
-    Hs[ref_n], Ws[ref_n] = ref_cam["h"], ref_cam["w"]
-    intrinsics[ref_n] = ref_intrinsics 
 
-    return image, depth, ref_n, extrinsics, intrinsics, Hs, Ws, names
+    return image, depth, ref, extrinsics, intrinsics, Hs, Ws, names
