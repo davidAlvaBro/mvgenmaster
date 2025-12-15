@@ -708,6 +708,14 @@ class StableDiffusionMultiViewPipeline(
         latents = latents * self.scheduler.init_noise_sigma
         return latents
 
+    def prepare_slightly_noised_latents(self, scheduler, timestep, latents_prenoised, dtype, device, generator):
+        """
+        Applies the noise level of 'timestep' to 'latents_prenoised' for partial inpainting. 
+        """
+        noise = randn_tensor(latents_prenoised.shape, generator=generator, device=device, dtype=dtype)
+        latents = scheduler.add_noise(latents_prenoised, noise, timestep)
+        return latents
+
     # Copied from diffusers.pipelines.latent_consistency_models.pipeline_latent_consistency_text2img.LatentConsistencyModelPipeline.get_guidance_scale_embedding
     def get_guidance_scale_embedding(
             self, w: torch.Tensor, embedding_dim: int = 512, dtype: torch.dtype = torch.float32
@@ -931,7 +939,7 @@ class StableDiffusionMultiViewPipeline(
         # to deal with lora scaling and other possible forward hooks
 
         # 1. Check inputs. Raise error if not correct
-        prompt = ""
+        prompt = "" # TODO - try with a prompt in MVGenMaster? 
         self.check_inputs(
             prompt,
             height,
@@ -1041,17 +1049,28 @@ class StableDiffusionMultiViewPipeline(
 
         # 5. Prepare latent variables
         num_channels_latents = self.unet.config.in_channels
-        latents = self.prepare_latents(
-            batch_size * num_images_per_prompt,
-            nframe - cond_num,
-            num_channels_latents,
-            height,
-            width,
-            dtype,
-            device,
-            generator,
-            latents,
-        )
+        if kwargs.start_from_step == None: 
+            latents = self.prepare_latents(
+                batch_size * num_images_per_prompt,
+                nframe - cond_num,
+                num_channels_latents,
+                height,
+                width,
+                dtype,
+                device,
+                generator,
+                latents,
+            )
+        else: # This enables only doing the final diffusion steps given input images.
+            timesteps = timesteps[kwargs.start_from_step:]
+            num_inference_steps = len(timesteps)
+            latents = self.prepare_slightly_noised_latents(
+                scheduler=scheduler, 
+                timestep=timesteps[0], 
+                latents_prenoised=image_latents[:, cond_num:],
+                dtype=dtype,
+                device=device,
+                generator=generator)
         latents = torch.cat([image_latents[:, :cond_num], latents], dim=1)
 
         # 6. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
