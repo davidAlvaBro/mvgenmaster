@@ -272,6 +272,10 @@ def eval(args, config, data, pipeline, data_args: dict, zoomed, ref_n):
         
         images_to_semi_noise =  Compose([ToTensor(), Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])(cropped_and_resized_preds).unsqueeze(0)
 
+        # transform = Compose([ToTensor(), Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+        # new_in = torch.stack([transform(pred) for pred in preds])
+        # new_in[:args.cond_num] = image[:args.cond_num]
+
         image = torch.cat([data["ref_images"], images_to_semi_noise], dim=0).to("cuda")
         intrinsic = torch.cat([data["ref_intrinsic"], zoomed_int], dim=0).to("cuda")
         extrinsic = torch.cat([data["ref_extrinsic"], zoomed_ext], dim=0).to("cuda")

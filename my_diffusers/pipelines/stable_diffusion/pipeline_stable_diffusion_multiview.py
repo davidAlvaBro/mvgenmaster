@@ -1049,7 +1049,7 @@ class StableDiffusionMultiViewPipeline(
 
         # 5. Prepare latent variables
         num_channels_latents = self.unet.config.in_channels
-        if kwargs.start_from_step == None: 
+        if kwargs["start_from_step"] == None: 
             latents = self.prepare_latents(
                 batch_size * num_images_per_prompt,
                 nframe - cond_num,
@@ -1062,7 +1062,7 @@ class StableDiffusionMultiViewPipeline(
                 latents,
             )
         else: # This enables only doing the final diffusion steps given input images.
-            timesteps = timesteps[kwargs.start_from_step:]
+            timesteps = timesteps[kwargs["start_from_step"]:]
             num_inference_steps = len(timesteps)
             latents = self.prepare_slightly_noised_latents(
                 scheduler=scheduler, 
