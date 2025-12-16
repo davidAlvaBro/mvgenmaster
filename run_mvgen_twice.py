@@ -175,19 +175,16 @@ def load_dataset(args, config, reference_cam, target_cams, reference_img, depth_
             "ref_names": ref_names, "tar_names": tar_names, "h": h, "w": w, "scale": rescale}
 
 
-def eval(args, config, data, pipeline, data_args: dict):
+def eval(args, config, data, pipeline, data_args: dict, zoomed, ref_n):
     # Bookkeeping for GS pipeline (make a new transforms.json)
     parent_path = Path(config.save_path)
     file_names = [] 
     # names of images and aspect ratios might change 
     # We also have to do it for the evaluation frames so that we can messure PSNR drop
     w, h = data["w"], data["h"]
-    for i, frame in enumerate(data_args["frames"] + data_args["eval"]): 
-        if frame["file_path"] is not None: 
-            file_name = frame["file_path"]
-        else: 
-            file_name = f"images/view{i}.png"
-            frame["file_path"] = file_name 
+    for i, frame in enumerate(data_args["frames"] + data_args["eval"]):  
+        file_name = frame["file_path"]
+        # Usual perspective 
         old_h, old_w = frame["h"], frame["w"]
         scale_h, scale_w = h / old_h, w / old_w
         frame["w"] = w
@@ -196,17 +193,37 @@ def eval(args, config, data, pipeline, data_args: dict):
         frame["fl_y"] = frame["fl_y"] * scale_h
         frame["cx"] = frame["cx"] * scale_w
         frame["cy"] = frame["cy"] * scale_h
-
+        # zoomed perspective 
+        old_h, old_w = frame["zoomed_h"], frame["zoomed_w"]
+        scale_h, scale_w = h / old_h, w / old_w
+        frame["zoomed_w"] = w
+        frame["zoomed_h"] = h
+        frame["zoomed_fl_x"] = frame["zoomed_fl_x"] * scale_w
+        frame["zoomed_fl_y"] = frame["zoomed_fl_y"] * scale_h
+        frame["zoomed_cx"] = frame["zoomed_cx"] * scale_w
+        frame["zoomed_cy"] = frame["zoomed_cy"] * scale_h
+        frame["crop_x_min"] = int(frame["crop_x_min"] * scale_w)
+        frame["crop_x_max"] = int(frame["crop_x_max"] * scale_w)
+        frame["crop_y_min"] = int(frame["crop_y_min"] * scale_h)
+        frame["crop_y_max"] = int(frame["crop_y_max"] * scale_h)
+        
         file_names.append(str(parent_path / file_name))
     
-
-    N_target = data['tar_intrinsic'].shape[0]
-    gen_num = config.nframe - args.cond_num
+    # Split the initial wide angle views from the zoomed in 
+    wide_ext = data["tar_extrinsic"][~zoomed]
+    wide_int = data["tar_intrinsic"][~zoomed]
+    wide_names = data["tar_names"][~zoomed]
+    zoomed_ext = data["tar_extrinsic"][zoomed]
+    zoomed_int = data["tar_intrinsic"][zoomed]
+    zoomed_names = data["tar_names"][zoomed]
+    
+    wide_n = wide_int.shape[0]
+    zoomed_n = zoomed_int.shape[0]
 
     # Save reference image 
-    ref_img = ToPILImage()((data['ref_images'][0] + 1) / 2)
-    ref_img.save(file_names[data_args["ref"]])
-    file_names_without_reference = file_names[:data_args["ref"]] + file_names[data_args["ref"]+1:]
+    # ref_img = ToPILImage()((data['ref_images'][0] + 1) / 2)
+    # ref_img.save(file_names[data_args["ref"]])
+    # file_names_without_reference = file_names[:data_args["ref"]] + file_names[data_args["ref"]+1:]
 
     # Save depth map path in transforms.json
     depth_map_path = "ref_depth_map.npy"
@@ -217,16 +234,16 @@ def eval(args, config, data, pipeline, data_args: dict):
         json.dump(data_args, f, ensure_ascii=False, indent=2)   
 
     with torch.no_grad(), torch.autocast("cuda"):
-        h, w = data['ref_images'].shape[2], data['ref_images'].shape[3]
-        image = torch.cat([data["ref_images"], torch.zeros((N_target, 3, h, w), dtype=torch.float32)], dim=0).to("cuda")
-        intrinsic = torch.cat([data["ref_intrinsic"], data["tar_intrinsic"]], dim=0).to("cuda")
-        extrinsic = torch.cat([data["ref_extrinsic"], data["tar_extrinsic"]], dim=0).to("cuda")
+        h, w = data['ref_images'].shape[2], data['ref_images'].shape[3] # TODO why not just data["h"]...?
+        image = torch.cat([data["ref_images"], torch.zeros((wide_n, 3, h, w), dtype=torch.float32)], dim=0).to("cuda")
+        intrinsic = torch.cat([data["ref_intrinsic"], wide_int], dim=0).to("cuda")
+        extrinsic = torch.cat([data["ref_extrinsic"], wide_ext], dim=0).to("cuda")
         if data["ref_depth"] is not None:
-            depth = torch.cat([data["ref_depth"], torch.zeros((N_target, 1, h, w), dtype=torch.float32)], dim=0).to("cuda")
+            depth = torch.cat([data["ref_depth"], torch.zeros((wide_n, 1, h, w), dtype=torch.float32)], dim=0).to("cuda")
         else:
             depth = None
 
-        nframe_new = N_target + args.cond_num
+        nframe_new = wide_n + args.cond_num
         config_copy = copy.deepcopy(config)
         config_copy.nframe = nframe_new
         generator = torch.Generator()
@@ -241,21 +258,42 @@ def eval(args, config, data, pipeline, data_args: dict):
         print("Time used:", time.time() - st)
         preds_without_ref = preds[args.cond_num:] # TODO kinda want to see how the reference image looks
         preds_without_ref = (preds_without_ref * 255).astype(np.uint8)
-
+        # TODO fix names here, because the ref image is not here, but the "zoomed out" ref image is. 
         # Store images 
         for j in range(preds_without_ref.shape[0]):
-            cv2.imwrite(file_names_without_reference[j], preds_without_ref[j, :, :, ::-1])
+            cv2.imwrite(file_names[j][:-4] + "_wide.png", preds_without_ref[j, :, :, ::-1])
+
+        # Crop predicted images to "zoomed in" area 
+        cropped_and_resized_preds = torch.zeros_like(preds_without_ref)[:-1]
+        for i, frame in enumerate(data_args["frames"] + data_args["eval"]):
+            if 2*i+1 == ref_n : continue # Drop reference frame as it is already there 
+            crop = preds_without_ref[i, frame["crop_x_min"]:frame["crop_x_max"]]
+            cropped_and_resized_preds[i] = cv2.resize(crop, (h,w))
+        
+        images_to_semi_noise =  Compose([ToTensor(), Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])(cropped_and_resized_preds).unsqueeze(0)
+
+        image = torch.cat([data["ref_images"], images_to_semi_noise], dim=0).to("cuda")
+        intrinsic = torch.cat([data["ref_intrinsic"], zoomed_int], dim=0).to("cuda")
+        extrinsic = torch.cat([data["ref_extrinsic"], zoomed_ext], dim=0).to("cuda")
 
         # Run it again but with less applied noise 
-        preds = pipeline(images=preds, nframe=nframe_new, cond_num=args.cond_num,
+        preds2 = pipeline(images=image, nframe=nframe_new, cond_num=args.cond_num,
                             key_rescale=args.key_rescale, height=h, width=w, intrinsics=intrinsic,
                             extrinsics=extrinsic, num_inference_steps=50, guidance_scale=args.val_cfg,
                             output_type="np", config=config_copy, tag=["custom"] * image.shape[0],
                             class_label=args.class_label, depth=depth, vae=pipeline.vae, generator=generator, start_from_step=25).images  # [f,h,w,c]
-        preds_without_ref = preds[args.cond_num:]
-        preds_without_ref = (preds_without_ref * 255).astype(np.uint8)
+        preds_without_ref2 = preds2[args.cond_num:]
+        preds_without_ref2 = (preds_without_ref2 * 255).astype(np.uint8)
+        for j in range(preds_without_ref2.shape[0]):
+            cv2.imwrite(file_names[j][:-4] + "_zoomed.png", preds_without_ref2[j, :, :, ::-1])
+
+        for i, frame in enumerate(data_args["frames"] + data_args["eval"]):
+            # TODO permute preds to put the reference image in its place
+            crop = cv2.resize(preds[i], (frame["crop_y_max"] - frame["crop_y_min"], frame["crop_x_max"] - frame["crop_x_min"]))
+            preds_without_ref[i, frame["crop_y_min"]:frame["crop_y_max"], frame["crop_x_min"]:frame["crop_x_max"]] = crop
+        
         for j in range(preds_without_ref.shape[0]):
-            cv2.imwrite(file_names_without_reference[j][:-4] + "_2.png", preds_without_ref[j, :, :, ::-1])
+            cv2.imwrite(file_names[j], preds_without_ref[j, :, :, ::-1])
 
     return file_names 
 
@@ -278,16 +316,6 @@ if __name__ == '__main__':
     parser.add_argument("--seed", type=int, default=123)
     parser.add_argument("--class_label", type=int, default=0)
     parser.add_argument("--target_limit", type=int, default=None)
-    # single-view parameters
-    parser.add_argument("--center_scale", type=float, default=1.0)
-    parser.add_argument("--elevation", type=float, default=5.0, help="the initial elevation angle")
-    parser.add_argument("--d_theta", type=float, default=0.0, help="elevation rotation angle")
-    parser.add_argument("--d_phi", type=float, default=45.0, help="azimuth rotation angle")
-    parser.add_argument("--d_r", type=float, default=1.0, help="the distance from camera to the world center")
-    parser.add_argument("--x_offset", type=float, default=0.0, help="up moving")
-    parser.add_argument("--y_offset", type=float, default=0.0, help="left moving")
-    parser.add_argument("--median_depth", action="store_true")
-    parser.add_argument("--foreground", action="store_true")
 
     args = parser.parse_args()
     config = EasyDict(OmegaConf.load(os.path.join(args.model_dir, "config.yaml")))
@@ -312,44 +340,11 @@ if __name__ == '__main__':
     with open(args.input_path, 'r') as file:
         data_args = json.load(file)
 
-    # Cameras and reference image # TODO fix this mess...
-    img, depth, ref_n, extrinsics, intrinsics, Hs, Ws, view_names = load_cameras(ref_img_folder, data_args)
+    # Cameras and reference image 
+    img, depth, ref_n, extrinsics, intrinsics, Hs, Ws, view_names, zoomed = load_cameras(ref_img_folder, data_args)
     depth = torch.tensor(depth, device=device)
-    h, w = Hs[ref_n], Ws[ref_n] # TODO check this is correct
     c2ws_all = [torch.tensor(ex, dtype=torch.float32) for ex in extrinsics]
     w2cs_all = [c2w.inverse() for c2w in c2ws_all]
-    Ks = torch.tensor(intrinsics, dtype=torch.float32, device=device)
-    K_invs = Ks.inverse()
-
-    transform = Compose(
-        [
-            ToTensor(),
-            Lambda(lambda x: x.to(device)),
-            Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
-            ConvertImageDtype(torch.float32),
-        ]
-    )
-
-    image = transform(img)
-
-    # 3d sparse point cloud
-    points2d = torch.stack(torch.meshgrid(torch.arange(w, dtype=torch.float32),
-                                            torch.arange(h, dtype=torch.float32), indexing="xy"), -1).to(device)  # [h,w,2]
-    points3d = points_padding(points2d).reshape(h * w, 3)  # [hw,3]
-    points3d = (K_invs[ref_n] @ points3d.T * depth.reshape(1, h * w)).T
-    colors = ((image + 1) / 2 * 255).to(torch.uint8).permute(1, 2, 0).reshape(h * w, 3)
-    points3d = points3d.cpu().numpy()
-    colors = colors.cpu().numpy()
-
-    # save pointcloud 
-    # TODO understand what the hell happenes here? 
-    scene = trimesh.Scene()
-    for i in range(len(c2ws_all)):
-        add_scene_cam(scene, c2ws_all[i], CAM_COLORS[i % len(CAM_COLORS)], None, imsize=(512, 512), screen_width=0.03)
-
-    pcd = trimesh.PointCloud(vertices=points3d, colors=colors)
-    _ = pcd.export(f"{save_path}/pcd.ply")
-    scene.export(file_obj=f"{save_path}/cameras.glb")
 
     # Each camera has its own intrinsics and extrinsics
     target_cams = {}
@@ -359,6 +354,7 @@ if __name__ == '__main__':
                           'extrinsic': e,
                           'intrinsic': i}
     reference_cam = {view_names[ref_n] + "_ref": target_cams.pop(view_names[ref_n])}
+    zoomed = zoomed.pop(ref_n)
 
     ### Step2: generate multi-view images ###
     # init model
@@ -401,4 +397,4 @@ if __name__ == '__main__':
     data = load_dataset(args, config, reference_cam, target_cams, img, depth.cpu().numpy())
 
     os.makedirs(f"{save_path}/images", exist_ok=True)
-    results = eval(args, config, data, pipeline, data_args)
+    results = eval(args, config, data, pipeline, data_args, zoomed, ref_n)

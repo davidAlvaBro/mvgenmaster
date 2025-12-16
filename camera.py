@@ -22,6 +22,7 @@ def load_cameras(parent_dir: Path, args: dict):
     Hs = []
     Ws = []
     names = []
+    zoomed = []
     for i, cam in enumerate(args["frames"] + args["eval"]): 
         Hs.append(cam["h"])
         Ws.append(cam["w"])
@@ -36,5 +37,19 @@ def load_cameras(parent_dir: Path, args: dict):
         extrinsics.append(flip_ynz @ F @ flip_ynz)
         intrinsics.append(intrinsic) 
         names.append(f"view{str(i).zfill(3)}")
+        zoomed.append(False)
+        
+        # Also pass on the 'zoomed' cameras 
+        Hs.append(cam["zoomed_h"])
+        Ws.append(cam["zoomed_w"])
+        intrinsic_zoomed = np.array([[cam["zoomed_fl_x"], 0, cam["zoomed_cx"]],
+                        [0, cam["zoomed_fl_y"], cam["zoomed_cy"]],
+                        [0, 0, 1]])
+        intrinsics.append(intrinsic_zoomed)
+        extrinsics.append(flip_ynz @ F @ flip_ynz)
+        names.append(f"view{str(i).zfill(3)}_zoomed")
+        zoomed.append(True)
 
-    return image, depth, ref, extrinsics, intrinsics, Hs, Ws, names
+    # Since we also store the zoomed in cameras we have twice as many and ref is therefore 2 times higher. 
+    # +1 because I want the zoomed in.
+    return image, depth, ref*2+1, extrinsics, intrinsics, Hs, Ws, names, zoomed
