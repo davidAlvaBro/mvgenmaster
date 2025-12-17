@@ -1064,13 +1064,16 @@ class StableDiffusionMultiViewPipeline(
         else: # This enables only doing the final diffusion steps given input images.
             timesteps = timesteps[kwargs["start_from_step"]:]
             num_inference_steps = len(timesteps)
-            latents = self.prepare_slightly_noised_latents(
-                scheduler=scheduler, 
-                timestep=timesteps[0], 
-                latents_prenoised=image_latents[:, cond_num:],
-                dtype=dtype,
-                device=device,
-                generator=generator)
+            target_latents = image_latents[:, cond_num:] 
+            # The noise is later used for the boarder 
+            noise = randn_tensor(target_latents.shape, generator=generator, device=device, dtype=dtype)
+            latents = scheduler.add_noise(target_latents, noise, timesteps[0])
+            boarder_mask = torch.ones_like(latents)
+            boarder_size_h = latents.shape[3] // 12
+            boarder_size_w = latents.shape[4] // 12
+            boarder_mask[:, :, :, boarder_size_h:-boarder_size_h, boarder_size_w:-boarder_size_w] = 0
+            boarder_mask = torch.cat([torch.zeros_like(image_latents[:, :cond_num]), boarder_mask], dim=1).bool()
+            
         latents = torch.cat([image_latents[:, :cond_num], latents], dim=1)
 
         # 6. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
@@ -1111,6 +1114,10 @@ class StableDiffusionMultiViewPipeline(
             for i, t in enumerate(timesteps):
                 if self.interrupt:
                     continue
+                
+                if kwargs["start_from_step"] is not None: 
+                    boarder_latents = scheduler.add_noise(target_latents, noise, t)
+                    latents[boarder_mask] = boarder_latents[boarder_mask[:, cond_num:]] 
 
                 # expand the latents if we are doing classifier free guidance
                 latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents

@@ -9,8 +9,8 @@ def load_cameras(parent_dir: Path, args: dict):
     along with the reference image
     """
     # The reference image is selected 
-    ref = args["ref"]
-    ref_cam = args["frames"][ref] 
+    ref = args["trajectory_ref"]
+    ref_cam = args["trajectory"][ref] 
     img_pth = parent_dir / ref_cam["file_path"]
     img_pil = Image.open(img_pth)
     image = np.array(img_pil)
@@ -23,7 +23,7 @@ def load_cameras(parent_dir: Path, args: dict):
     Ws = []
     names = []
     zoomed = []
-    for i, cam in enumerate(args["frames"] + args["eval"]): 
+    for i, cam in enumerate(args["trajectory"]):# + args["eval"]): 
         Hs.append(cam["h"])
         Ws.append(cam["w"])
         intrinsic = np.array([[cam["fl_x"], 0, cam["cx"]],

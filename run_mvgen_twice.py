@@ -182,7 +182,7 @@ def eval(args, config, data, pipeline, data_args: dict, zoomed, ref_n):
     # names of images and aspect ratios might change 
     # We also have to do it for the evaluation frames so that we can messure PSNR drop
     w, h = data["w"], data["h"]
-    for i, frame in enumerate(data_args["frames"] + data_args["eval"]):  
+    for i, frame in enumerate(data_args["trajectory"]):#+ data_args["eval"]):  
         file_name = frame["file_path"]
         # Usual perspective 
         old_h, old_w = frame["h"], frame["w"]
@@ -193,6 +193,11 @@ def eval(args, config, data, pipeline, data_args: dict, zoomed, ref_n):
         frame["fl_y"] = frame["fl_y"] * scale_h
         frame["cx"] = frame["cx"] * scale_w
         frame["cy"] = frame["cy"] * scale_h
+        # Crops are from the original full size images and should be scaled likewise
+        frame["crop_x_min"] = int(frame["crop_x_min"] * scale_w)
+        frame["crop_x_max"] = int(frame["crop_x_max"] * scale_w)
+        frame["crop_y_min"] = int(frame["crop_y_min"] * scale_h)
+        frame["crop_y_max"] = int(frame["crop_y_max"] * scale_h)
         # zoomed perspective 
         old_h, old_w = frame["zoomed_h"], frame["zoomed_w"]
         scale_h, scale_w = h / old_h, w / old_w
@@ -202,20 +207,16 @@ def eval(args, config, data, pipeline, data_args: dict, zoomed, ref_n):
         frame["zoomed_fl_y"] = frame["zoomed_fl_y"] * scale_h
         frame["zoomed_cx"] = frame["zoomed_cx"] * scale_w
         frame["zoomed_cy"] = frame["zoomed_cy"] * scale_h
-        frame["crop_x_min"] = int(frame["crop_x_min"] * scale_w)
-        frame["crop_x_max"] = int(frame["crop_x_max"] * scale_w)
-        frame["crop_y_min"] = int(frame["crop_y_min"] * scale_h)
-        frame["crop_y_max"] = int(frame["crop_y_max"] * scale_h)
         
         file_names.append(str(parent_path / file_name))
     
     # Split the initial wide angle views from the zoomed in 
     wide_ext = data["tar_extrinsic"][~zoomed]
     wide_int = data["tar_intrinsic"][~zoomed]
-    wide_names = data["tar_names"][~zoomed]
+    # wide_names = data["tar_names"][~zoomed]
     zoomed_ext = data["tar_extrinsic"][zoomed]
     zoomed_int = data["tar_intrinsic"][zoomed]
-    zoomed_names = data["tar_names"][zoomed]
+    # zoomed_names = data["tar_names"][zoomed]
     
     wide_n = wide_int.shape[0]
     zoomed_n = zoomed_int.shape[0]
@@ -223,7 +224,7 @@ def eval(args, config, data, pipeline, data_args: dict, zoomed, ref_n):
     # Save reference image 
     # ref_img = ToPILImage()((data['ref_images'][0] + 1) / 2)
     # ref_img.save(file_names[data_args["ref"]])
-    # file_names_without_reference = file_names[:data_args["ref"]] + file_names[data_args["ref"]+1:]
+    file_names_without_reference = file_names[:data_args["ref"]] + file_names[data_args["ref"]+1:]
 
     # Save depth map path in transforms.json
     depth_map_path = "ref_depth_map.npy"
@@ -234,7 +235,6 @@ def eval(args, config, data, pipeline, data_args: dict, zoomed, ref_n):
         json.dump(data_args, f, ensure_ascii=False, indent=2)   
 
     with torch.no_grad(), torch.autocast("cuda"):
-        h, w = data['ref_images'].shape[2], data['ref_images'].shape[3] # TODO why not just data["h"]...?
         image = torch.cat([data["ref_images"], torch.zeros((wide_n, 3, h, w), dtype=torch.float32)], dim=0).to("cuda")
         intrinsic = torch.cat([data["ref_intrinsic"], wide_int], dim=0).to("cuda")
         extrinsic = torch.cat([data["ref_extrinsic"], wide_ext], dim=0).to("cuda")
@@ -252,48 +252,55 @@ def eval(args, config, data, pipeline, data_args: dict, zoomed, ref_n):
 
         preds = pipeline(images=image, nframe=nframe_new, cond_num=args.cond_num,
                             key_rescale=args.key_rescale, height=h, width=w, intrinsics=intrinsic,
-                            extrinsics=extrinsic, num_inference_steps=50, guidance_scale=args.val_cfg,
+                            extrinsics=extrinsic, num_inference_steps=70, guidance_scale=args.val_cfg,
                             output_type="np", config=config_copy, tag=["custom"] * image.shape[0],
-                            class_label=args.class_label, depth=depth, vae=pipeline.vae, generator=generator).images  # [f,h,w,c]
+                            class_label=args.class_label, depth=depth, vae=pipeline.vae, generator=generator,  start_from_step=None).images  # [f,h,w,c]
         print("Time used:", time.time() - st)
         preds_without_ref = preds[args.cond_num:] # TODO kinda want to see how the reference image looks
         preds_without_ref = (preds_without_ref * 255).astype(np.uint8)
-        # TODO fix names here, because the ref image is not here, but the "zoomed out" ref image is. 
+        # TODO fix variable names here, because the ref image is not here, but the "zoomed out" ref image is. 
         # Store images 
         for j in range(preds_without_ref.shape[0]):
             cv2.imwrite(file_names[j][:-4] + "_wide.png", preds_without_ref[j, :, :, ::-1])
 
         # Crop predicted images to "zoomed in" area 
-        cropped_and_resized_preds = torch.zeros_like(preds_without_ref)[:-1]
-        for i, frame in enumerate(data_args["frames"] + data_args["eval"]):
-            if 2*i+1 == ref_n : continue # Drop reference frame as it is already there 
-            crop = preds_without_ref[i, frame["crop_x_min"]:frame["crop_x_max"]]
-            cropped_and_resized_preds[i] = cv2.resize(crop, (h,w))
+        cropped_and_resized_preds = np.zeros_like(preds_without_ref)
+        for i, frame in enumerate(data_args["trajectory"]):# + data_args["eval"]):
+            crop = preds_without_ref[i, frame["crop_y_min"]:frame["crop_y_max"], frame["crop_x_min"]:frame["crop_x_max"]]
+            cropped_and_resized_preds[i] = cv2.resize(crop, (w,h))
+        # store crops for comparison 
+        for j in range(cropped_and_resized_preds.shape[0]):
+            cv2.imwrite(file_names[j][:-4] + "_crop.png", cropped_and_resized_preds[j, :, :, ::-1])
         
-        images_to_semi_noise =  Compose([ToTensor(), Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])(cropped_and_resized_preds).unsqueeze(0)
+        cropped_and_resized_preds = np.delete(cropped_and_resized_preds, ref_n//2, axis=0)
 
-        # transform = Compose([ToTensor(), Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-        # new_in = torch.stack([transform(pred) for pred in preds])
+        # images_to_semi_noise = torch.stack([Compose([ToTensor(), Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])(img) for img in cropped_and_resized_preds])
+
+        transform = Compose([ToTensor(), Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+        new_in = torch.stack([image[0]] + [transform(pred).to("cuda") for pred in cropped_and_resized_preds])
         # new_in[:args.cond_num] = image[:args.cond_num]
 
-        image = torch.cat([data["ref_images"], images_to_semi_noise], dim=0).to("cuda")
+        # image = torch.cat([data["ref_images"], images_to_semi_noise], dim=0).to("cuda")
+        # image = torch.cat([data["ref_images"], torch.zeros((zoomed_n, 3, h, w))], dim=0).to("cuda")
         intrinsic = torch.cat([data["ref_intrinsic"], zoomed_int], dim=0).to("cuda")
         extrinsic = torch.cat([data["ref_extrinsic"], zoomed_ext], dim=0).to("cuda")
 
         # Run it again but with less applied noise 
-        preds2 = pipeline(images=image, nframe=nframe_new, cond_num=args.cond_num,
+        preds2 = pipeline(images=new_in, nframe=nframe_new-1, cond_num=args.cond_num,
                             key_rescale=args.key_rescale, height=h, width=w, intrinsics=intrinsic,
-                            extrinsics=extrinsic, num_inference_steps=50, guidance_scale=args.val_cfg,
+                            extrinsics=extrinsic, num_inference_steps=80, guidance_scale=args.val_cfg,
                             output_type="np", config=config_copy, tag=["custom"] * image.shape[0],
-                            class_label=args.class_label, depth=depth, vae=pipeline.vae, generator=generator, start_from_step=25).images  # [f,h,w,c]
+                            class_label=args.class_label, depth=depth[:-1], vae=pipeline.vae, generator=generator, start_from_step=10).images  # [f,h,w,c]
         preds_without_ref2 = preds2[args.cond_num:]
         preds_without_ref2 = (preds_without_ref2 * 255).astype(np.uint8)
         for j in range(preds_without_ref2.shape[0]):
-            cv2.imwrite(file_names[j][:-4] + "_zoomed.png", preds_without_ref2[j, :, :, ::-1])
+            cv2.imwrite(file_names_without_reference[j][:-4] + "_zoomed.png", preds_without_ref2[j, :, :, ::-1])
 
-        for i, frame in enumerate(data_args["frames"] + data_args["eval"]):
-            # TODO permute preds to put the reference image in its place
-            crop = cv2.resize(preds[i], (frame["crop_y_max"] - frame["crop_y_min"], frame["crop_x_max"] - frame["crop_x_min"]))
+        ref_image = (255 * (data['ref_images'][0] + 1) / 2).cpu().numpy().transpose(1,2,0).astype(np.uint8)
+        crops = np.concat([preds_without_ref2[:ref_n//2], ref_image[None, :], preds_without_ref2[ref_n//2:]])  
+
+        for i, frame in enumerate(data_args["trajectory"]):# + data_args["eval"]):
+            crop = cv2.resize(crops[i], (frame["crop_x_max"] - frame["crop_x_min"], frame["crop_y_max"] - frame["crop_y_min"]))
             preds_without_ref[i, frame["crop_y_min"]:frame["crop_y_max"], frame["crop_x_min"]:frame["crop_x_max"]] = crop
         
         for j in range(preds_without_ref.shape[0]):
@@ -317,7 +324,7 @@ if __name__ == '__main__':
     parser.add_argument("--camera_longest_side", type=float, default=5.0)
     parser.add_argument("--nframe", type=int, default=28)
     parser.add_argument("--min_conf_thr", type=float, default=1.5)
-    parser.add_argument("--seed", type=int, default=123)
+    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--class_label", type=int, default=0)
     parser.add_argument("--target_limit", type=int, default=None)
 
@@ -358,7 +365,8 @@ if __name__ == '__main__':
                           'extrinsic': e,
                           'intrinsic': i}
     reference_cam = {view_names[ref_n] + "_ref": target_cams.pop(view_names[ref_n])}
-    zoomed = zoomed.pop(ref_n)
+    zoomed.pop(ref_n)
+    zoomed = np.array(zoomed)
 
     ### Step2: generate multi-view images ###
     # init model
