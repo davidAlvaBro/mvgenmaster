@@ -23,7 +23,7 @@ def load_cameras(parent_dir: Path, args: dict):
     Ws = []
     names = []
     zoomed = []
-    for i, cam in enumerate(args["trajectory"]):# + args["eval"]): 
+    for i, cam in enumerate(args["trajectory"] + args["eval"]): 
         Hs.append(cam["h"])
         Ws.append(cam["w"])
         intrinsic = np.array([[cam["fl_x"], 0, cam["cx"]],
@@ -36,7 +36,7 @@ def load_cameras(parent_dir: Path, args: dict):
         # On the right rotates camera matrix to point the opposite way 
         extrinsics.append(flip_ynz @ F @ flip_ynz)
         intrinsics.append(intrinsic) 
-        names.append(f"view{str(i).zfill(3)}")
+        names.append(cam["file_path"])
         zoomed.append(False)
         
         # Also pass on the 'zoomed' cameras 
@@ -47,7 +47,7 @@ def load_cameras(parent_dir: Path, args: dict):
                         [0, 0, 1]])
         intrinsics.append(intrinsic_zoomed)
         extrinsics.append(flip_ynz @ F @ flip_ynz)
-        names.append(f"view{str(i).zfill(3)}_zoomed")
+        names.append(cam["file_path"][:-4] + "_zoomed.png")
         zoomed.append(True)
 
     # Since we also store the zoomed in cameras we have twice as many and ref is therefore 2 times higher. 

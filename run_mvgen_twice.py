@@ -182,7 +182,7 @@ def eval(args, config, data, pipeline, data_args: dict, zoomed, ref_n):
     # names of images and aspect ratios might change 
     # We also have to do it for the evaluation frames so that we can messure PSNR drop
     w, h = data["w"], data["h"]
-    for i, frame in enumerate(data_args["trajectory"]):#+ data_args["eval"]):  
+    for i, frame in enumerate(data_args["trajectory"] + data_args["eval"]):  
         file_name = frame["file_path"]
         # Usual perspective 
         old_h, old_w = frame["h"], frame["w"]
@@ -259,29 +259,18 @@ def eval(args, config, data, pipeline, data_args: dict, zoomed, ref_n):
         preds_without_ref = preds[args.cond_num:] # TODO kinda want to see how the reference image looks
         preds_without_ref = (preds_without_ref * 255).astype(np.uint8)
         # TODO fix variable names here, because the ref image is not here, but the "zoomed out" ref image is. 
-        # Store images 
-        for j in range(preds_without_ref.shape[0]):
-            cv2.imwrite(file_names[j][:-4] + "_wide.png", preds_without_ref[j, :, :, ::-1])
 
         # Crop predicted images to "zoomed in" area 
         cropped_and_resized_preds = np.zeros_like(preds_without_ref)
-        for i, frame in enumerate(data_args["trajectory"]):# + data_args["eval"]):
+        for i, frame in enumerate(data_args["trajectory"] + data_args["eval"]):
             crop = preds_without_ref[i, frame["crop_y_min"]:frame["crop_y_max"], frame["crop_x_min"]:frame["crop_x_max"]]
             cropped_and_resized_preds[i] = cv2.resize(crop, (w,h))
-        # store crops for comparison 
-        for j in range(cropped_and_resized_preds.shape[0]):
-            cv2.imwrite(file_names[j][:-4] + "_crop.png", cropped_and_resized_preds[j, :, :, ::-1])
         
-        cropped_and_resized_preds = np.delete(cropped_and_resized_preds, ref_n//2, axis=0)
-
-        # images_to_semi_noise = torch.stack([Compose([ToTensor(), Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])(img) for img in cropped_and_resized_preds])
+        cropped_and_resized_preds_without_ref = np.delete(cropped_and_resized_preds, ref_n//2, axis=0)
 
         transform = Compose([ToTensor(), Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-        new_in = torch.stack([image[0]] + [transform(pred).to("cuda") for pred in cropped_and_resized_preds])
-        # new_in[:args.cond_num] = image[:args.cond_num]
+        new_in = torch.stack([image[0]] + [transform(pred).to("cuda") for pred in cropped_and_resized_preds_without_ref])
 
-        # image = torch.cat([data["ref_images"], images_to_semi_noise], dim=0).to("cuda")
-        # image = torch.cat([data["ref_images"], torch.zeros((zoomed_n, 3, h, w))], dim=0).to("cuda")
         intrinsic = torch.cat([data["ref_intrinsic"], zoomed_int], dim=0).to("cuda")
         extrinsic = torch.cat([data["ref_extrinsic"], zoomed_ext], dim=0).to("cuda")
 
@@ -293,18 +282,30 @@ def eval(args, config, data, pipeline, data_args: dict, zoomed, ref_n):
                             class_label=args.class_label, depth=depth[:-1], vae=pipeline.vae, generator=generator, start_from_step=10).images  # [f,h,w,c]
         preds_without_ref2 = preds2[args.cond_num:]
         preds_without_ref2 = (preds_without_ref2 * 255).astype(np.uint8)
-        for j in range(preds_without_ref2.shape[0]):
-            cv2.imwrite(file_names_without_reference[j][:-4] + "_zoomed.png", preds_without_ref2[j, :, :, ::-1])
+            
 
         ref_image = (255 * (data['ref_images'][0] + 1) / 2).cpu().numpy().transpose(1,2,0).astype(np.uint8)
         crops = np.concat([preds_without_ref2[:ref_n//2], ref_image[None, :], preds_without_ref2[ref_n//2:]])  
 
-        for i, frame in enumerate(data_args["trajectory"]):# + data_args["eval"]):
+        for i, frame in enumerate(data_args["trajectory"] + data_args["eval"]):
             crop = cv2.resize(crops[i], (frame["crop_x_max"] - frame["crop_x_min"], frame["crop_y_max"] - frame["crop_y_min"]))
             preds_without_ref[i, frame["crop_y_min"]:frame["crop_y_max"], frame["crop_x_min"]:frame["crop_x_max"]] = crop
         
         for j in range(preds_without_ref.shape[0]):
             cv2.imwrite(file_names[j], preds_without_ref[j, :, :, ::-1])
+        
+        # If store everthing save intermediate stages 
+        if args.log_everything: 
+            path = Path(file_names[0]) 
+            root_path = path.parent
+            (root_path / "zoom").mkdir(parents=True, exist_ok=True)
+            (root_path / "crop").mkdir(parents=True, exist_ok=True)
+            (root_path / "wide").mkdir(parents=True, exist_ok=True)
+            for j, n in enumerate(file_names):
+                name = Path(n).name
+                cv2.imwrite(root_path / "zoom" / name, crops[j, :, :, ::-1])
+                cv2.imwrite(root_path / "crop" / name, cropped_and_resized_preds[j, :, :, ::-1])
+                cv2.imwrite(root_path / "wide" / name, preds_without_ref[j, :, :, ::-1])
 
     return file_names 
 
@@ -320,6 +321,8 @@ if __name__ == '__main__':
     parser.add_argument("--model_dir", type=str, default="check_points/pretrained_model", help="model directory.")
     parser.add_argument("--output_path", type=str, default="mvgen")
     parser.add_argument("--val_cfg", type=float, default=2.0)
+    parser.add_argument("--log_everything", action='store_true', help="If set also saves the non-inpainted image, the crop and inpainting alone")
+    # TODO are these even relevant at all? Look at debugging and kill them
     parser.add_argument("--key_rescale", type=float, default=None)
     parser.add_argument("--camera_longest_side", type=float, default=5.0)
     parser.add_argument("--nframe", type=int, default=28)
