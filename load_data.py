@@ -2,10 +2,9 @@ from pathlib import Path
 import json
 
 import numpy as np 
-from PIL import Image
 import cv2
 import torch
-from torchvision.transforms import ToTensor, ToPILImage, Compose, Normalize, Lambda, ConvertImageDtype
+from torchvision.transforms import ToTensor, Compose
 
 
 def load_dataset(args, config): 
@@ -15,6 +14,7 @@ def load_dataset(args, config):
     """
     parent_dir=Path(args.working_dir) 
     transforms_path=Path(args.input_path)
+    ref_img_folder = Path(args.working_dir) if args.added_img_path == "" else Path(args.working_dir) / args.added_img_path
     with open(transforms_path, 'r') as file:
         metadata = json.load(file)
     
@@ -49,14 +49,14 @@ def load_dataset(args, config):
 
 
     # Reference image 
-    ref = args["trajectory_ref"]
+    ref = metadata["trajectory_ref"]
     ref_cam = frames[ref] 
-    img_pth = parent_dir / ref_cam["file_path"]
-    img = cv2.imread(img_pth) # TODO check that this does not fuck anything
-    h,w = img.shape[1:] # TODO check this
+    img_pth = ref_img_folder / ref_cam["file_path"]
+    img = cv2.cvtColor(cv2.imread(img_pth), cv2.COLOR_BGR2RGB) 
+    h,w = img.shape[:2]
 
     # Reference depth 
-    depth_pth = parent_dir / ref_cam["depth_path"]
+    depth_pth = ref_img_folder / ref_cam["depth_path"]
     depth = np.load(depth_pth)
     # depth = cv2.resize(depth, (w, h), interpolation=cv2.INTER_NEAREST)
     depth_img = Compose([ToTensor()])(depth).unsqueeze(0)
@@ -98,9 +98,9 @@ def load_dataset(args, config):
                   "crop_coords": (cam["crop_y_min"], cam["crop_x_min"]),
                   "name": cam["file_path"],
                   "zoomed_idx": i,
-                  "wide_idc": i}
+                  "wide_idx": i}
         
-        cameras.append[camera]
+        cameras.append(camera)
         intrinsics.append(intrinsic)
         w2cs.append(extrinsic)
         zoomed_intrinsics.append(zoomed_intrinsic)

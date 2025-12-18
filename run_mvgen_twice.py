@@ -1,42 +1,22 @@
 import argparse
 import copy
-import json
 import os
 import random
-import time
-from glob import glob
 from pathlib import Path
 
 import cv2
-import imagesize
 import numpy as np
 import torch
-import trimesh
-from PIL import Image
 from diffusers import AutoencoderKL
 from easydict import EasyDict
-from moviepy.editor import ImageSequenceClip
 from omegaconf import OmegaConf
-from scipy.spatial.transform import Rotation
-from torchvision.transforms import ToTensor, ToPILImage, Compose, Normalize, Lambda, ConvertImageDtype
-from tqdm import tqdm
-from depth_pro.depth_pro import create_model_and_transforms
-from depth_pro.utils import load_rgb
+from torchvision.transforms import ToTensor, Compose, Normalize
 
-from dust3r.cloud_opt import global_aligner, GlobalAlignerMode
-from dust3r.image_pairs import make_pairs
-from dust3r.inference import inference
-from dust3r.model import AsymmetricCroCo3DStereo
-from dust3r.utils.image import load_images
-from src.modules.cam_vis import add_scene_cam
-from src.modules.position_encoding import global_position_encoding_3d
 from src.modules.schedulers import get_diffusion_scheduler
 from my_diffusers.models import UNet2DConditionModel
 from my_diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion_multiview import StableDiffusionMultiViewPipeline
-from scipy.interpolate import UnivariateSpline
-from scipy.interpolate import interp1d
-from MVGen.load_data import load_dataset
 
+from load_data import load_dataset
 
 def eval(args, config, data, pipeline):
     # Get necessary data 
@@ -46,9 +26,9 @@ def eval(args, config, data, pipeline):
     extrinsics = data["extrinsics"]
 
     # Extract reference cams 
-    ref_cam = cameras[ref_cam] # TODO check this works with multiple if I ever need it 
+    ref_cam = cameras[data["ref"]] # TODO check this works with multiple if I ever need it 
     ref_intrinsics = zoomed_intrinsics[ref_cam["zoomed_idx"]]
-    ref_extrinsics = extrinsics[ref_cam["idx"]]
+    ref_extrinsics = extrinsics[ref_cam["wide_idx"]]
     ref_depth = data["ref_depth"]
     img = data["ref_image"]
     (h,w) = data["shape"]
@@ -58,8 +38,8 @@ def eval(args, config, data, pipeline):
 
     with torch.no_grad(), torch.autocast("cuda"):
         image = torch.cat([ref_img, torch.zeros((n_to_gen, 3, h, w), dtype=torch.float32)], dim=0).to("cuda")
-        intrinsic = torch.cat([ref_intrinsics, intrinsics], dim=0).to("cuda")
-        extrinsic = torch.cat([ref_extrinsics, extrinsics], dim=0).to("cuda")
+        intrinsic = torch.cat([ref_intrinsics.unsqueeze(0), intrinsics], dim=0).to("cuda")
+        extrinsic = torch.cat([ref_extrinsics.unsqueeze(0), extrinsics], dim=0).to("cuda")
         depth = torch.cat([ref_depth, torch.zeros((n_to_gen, 1, h, w), dtype=torch.float32)], dim=0).to("cuda")
 
         # Setting these, but they should not even be parameters 
@@ -85,22 +65,23 @@ def eval(args, config, data, pipeline):
         for cam in cameras:
             crop_coords = cam["crop_coords"]
             crop_size = cam["crop_size"]
-            crop = wide_no_cond[cam["idx"], crop_coords[0]:crop_coords[0] + crop_size[0], crop_coords[0]:crop_coords[0] + crop_size[0]]
-            cropped_preds[cam["idx"]] = cv2.resize(crop, (w,h))
+            crop = wide_no_cond[cam["wide_idx"], crop_coords[0]:crop_coords[0] + crop_size[0], crop_coords[1]:crop_coords[1] + crop_size[1]]
+            cropped_preds[cam["wide_idx"]] = cv2.resize(crop, (w,h))
         
         new_in = torch.stack([image[0]] + [image_transform(pred).to("cuda") for pred in cropped_preds])
-        intrinsic = torch.cat([ref_intrinsics, zoomed_intrinsics], dim=0).to("cuda")
+        intrinsic = torch.cat([ref_intrinsics.unsqueeze(0), zoomed_intrinsics], dim=0).to("cuda")
 
         # Run it again but with less applied noise 
-        zoomed_pred = pipeline(images=new_in, nframe=nframe_new-1, cond_num=args.cond_num,
+        zoomed_pred = pipeline(images=new_in, nframe=nframe_new, cond_num=args.cond_num,
                             key_rescale=key_rescale, height=h, width=w, intrinsics=intrinsic,
                             extrinsics=extrinsic, num_inference_steps=80, guidance_scale=args.val_cfg,
                             output_type="np", config=config_copy, tag=["custom"] * image.shape[0],
-                            class_label=class_label, depth=depth[:-1], vae=pipeline.vae, generator=generator, start_from_step=10).images  # [f,h,w,c]
+                            class_label=class_label, depth=depth, vae=pipeline.vae, generator=generator, start_from_step=10).images  # [f,h,w,c]
         zoomed_pred_no_cond = zoomed_pred[args.cond_num:]
         zoomed_pred_no_cond = (zoomed_pred_no_cond * 255).astype(np.uint8)
         
-        zoomed_pred_no_cond[ref_cam["zoomed_idx"]] = img
+        # NOTE Works better if I simply let the reference crop be generated... 
+        # zoomed_pred_no_cond[ref_cam["zoomed_idx"]] = img
         
         # If store everthing save intermediate stages 
         if args.log_everything: 
@@ -110,17 +91,17 @@ def eval(args, config, data, pipeline):
             (root_path / "wide").mkdir(parents=True, exist_ok=True)
             for cam in cameras:
                 name = Path(cam["name"]).name
-                cv2.imwrite(root_path / "zoom" / name, zoomed_pred_no_cond[cam["idx"], :, :, ::-1])
-                cv2.imwrite(root_path / "crop" / name, cropped_preds[cam["idx"], :, :, ::-1])
-                cv2.imwrite(root_path / "wide" / name, wide_no_cond[cam["idx"], :, :, ::-1])
+                cv2.imwrite(root_path / "zoom" / name, zoomed_pred_no_cond[cam["wide_idx"], :, :, ::-1])
+                cv2.imwrite(root_path / "crop" / name, cropped_preds[cam["wide_idx"], :, :, ::-1])
+                cv2.imwrite(root_path / "wide" / name, wide_no_cond[cam["wide_idx"], :, :, ::-1])
 
         # Put in the newly inpainted people
         for cam in cameras:
             crop_coords = cam["crop_coords"]
             crop_size = cam["crop_size"]
-            crop = cv2.resize(zoomed_pred_no_cond[cam["idx"]], (crop_size[1], crop_size[0]))
-            wide_no_cond[cam["idx"], crop_coords[0]:crop_coords[0] + crop_size[0], crop_coords[0]:crop_coords[0] + crop_size[0]] = crop
-            cv2.imwrite( config.save_path / cam["name"], wide_no_cond[cam["idx"], :, :, ::-1])
+            crop = cv2.resize(zoomed_pred_no_cond[cam["wide_idx"]], (crop_size[1], crop_size[0]))
+            wide_no_cond[cam["wide_idx"], crop_coords[0]:crop_coords[0] + crop_size[0], crop_coords[1]:crop_coords[1] + crop_size[1]] = crop
+            cv2.imwrite( config.save_path / cam["name"], wide_no_cond[cam["wide_idx"], :, :, ::-1])
 
 
 
@@ -150,7 +131,6 @@ if __name__ == '__main__':
     device = "cuda"
 
     save_path = Path(args.working_dir) / args.output_path
-    ref_img_folder = Path(args.working_dir) if args.added_img_path == "" else Path(args.working_dir) / args.added_img_path
     save_path.mkdir(parents=True, exist_ok=True)
     args.cond_num = 1
 
