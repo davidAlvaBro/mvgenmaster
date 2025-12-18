@@ -35,7 +35,7 @@ from my_diffusers.models import UNet2DConditionModel
 from my_diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion_multiview import StableDiffusionMultiViewPipeline
 from scipy.interpolate import UnivariateSpline
 from scipy.interpolate import interp1d
-from camera import load_cameras
+from MVGen.load_data import load_cameras
 
 CAM_COLORS = [(255, 0, 0), (0, 0, 255), (0, 255, 0), (255, 0, 255), (255, 204, 0), (0, 204, 204),
               (128, 255, 255), (255, 128, 255), (255, 255, 128), (0, 0, 0), (128, 128, 128)]
