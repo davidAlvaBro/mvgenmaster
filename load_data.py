@@ -9,7 +9,7 @@ from torchvision.transforms import ToTensor, Compose
 
 def load_dataset(args, config): 
     """
-    Loads 'trajectory' and 'eval' frames from 'transforms_path', translates them to MVGenMaster's
+    Loads 'frames' and 'eval' frames from 'transforms_path', translates them to MVGenMaster's
     format and records these changes in a new transforms json.   
     """
     parent_dir=Path(args.working_dir) 
@@ -19,7 +19,7 @@ def load_dataset(args, config):
     with open(transforms_path, 'r') as file:
         metadata = json.load(file)
     
-    frames = metadata["trajectory"] + metadata["eval"]
+    frames = metadata["frames"] + metadata["eval"]
     
     # NOTE I removed all the rescaling of images and camera parameters because it
     # is already taken care of in the controlnet pipeline. But if I need it back it 
@@ -50,7 +50,7 @@ def load_dataset(args, config):
 
 
     # Reference image 
-    ref = metadata["trajectory_ref"]
+    ref = metadata["ref"]
     ref_cam = frames[ref] 
     img_pth = ref_img_folder / ref_cam["file_path"]
     img = cv2.cvtColor(cv2.imread(img_pth), cv2.COLOR_BGR2RGB) 
@@ -106,8 +106,6 @@ def load_dataset(args, config):
         w2cs.append(extrinsic)
         zoomed_intrinsics.append(zoomed_intrinsic)
 
-    # Now the 'trajectory' has to change name to 'frames' to work with gs pipe. 
-    metadata["frames"] = metadata.pop("trajectory")
     # Store updated metadata file 
     with open(transforms_out_path, "w", encoding="utf-8") as f:
         json.dump(metadata, f, ensure_ascii=False, indent=2)   
