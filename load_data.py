@@ -14,7 +14,8 @@ def load_dataset(args, config):
     """
     parent_dir=Path(args.working_dir) 
     transforms_path=Path(args.input_path)
-    ref_img_folder = Path(args.working_dir) if args.added_img_path == "" else Path(args.working_dir) / args.added_img_path
+    transforms_out_path = Path(args.working_dir) / args.output_path / "transforms.json"
+    ref_img_folder = parent_dir if args.added_img_path == "" else parent_dir / args.added_img_path
     with open(transforms_path, 'r') as file:
         metadata = json.load(file)
     
@@ -105,8 +106,10 @@ def load_dataset(args, config):
         w2cs.append(extrinsic)
         zoomed_intrinsics.append(zoomed_intrinsic)
 
+    # Now the 'trajectory' has to change name to 'frames' to work with gs pipe. 
+    metadata["frames"] = metadata.pop("trajectory")
     # Store updated metadata file 
-    with open(transforms_path, "w", encoding="utf-8") as f:
+    with open(transforms_out_path, "w", encoding="utf-8") as f:
         json.dump(metadata, f, ensure_ascii=False, indent=2)   
 
     # MVGenMaster expectes (N, 3, 3) for cameras 
