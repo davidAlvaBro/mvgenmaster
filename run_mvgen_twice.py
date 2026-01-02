@@ -100,8 +100,14 @@ def eval(args, config, data, pipeline):
             crop_coords = cam["crop_coords"]
             crop_size = cam["crop_size"]
             crop = cv2.resize(zoomed_pred_no_cond[cam["wide_idx"]], (crop_size[1], crop_size[0]))
-            wide_no_cond[cam["wide_idx"], crop_coords[0]:crop_coords[0] + crop_size[0], crop_coords[1]:crop_coords[1] + crop_size[1]] = crop
-            cv2.imwrite( config.save_path / cam["name"], wide_no_cond[cam["wide_idx"], :, :, ::-1])
+            # Find coordinates for the crop in the final image (avoid overflows)
+            bottom_right_corner_crop = torch.tensor(crop_coords) + torch.tensor(crop_size) 
+            amount_to_remove_crop = torch.clamp(bottom_right_corner_crop - torch.tensor(wide_no_cond.shape[1:3]), 0)
+            crop_end = bottom_right_corner_crop - amount_to_remove_crop
+            
+            wide_no_cond[cam["wide_idx"], crop_coords[0]:crop_end[0], crop_coords[1]:crop_end[1]] = crop[:crop_size[0]-amount_to_remove_crop[0], :crop_size[1]-amount_to_remove_crop[1]]
+            
+            cv2.imwrite(config.save_path / cam["name"], wide_no_cond[cam["wide_idx"], :, :, ::-1])
 
 
 
