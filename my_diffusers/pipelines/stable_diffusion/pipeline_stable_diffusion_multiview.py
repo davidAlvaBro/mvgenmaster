@@ -1068,6 +1068,7 @@ class StableDiffusionMultiViewPipeline(
             # The noise is later used for the boarder 
             noise = randn_tensor(target_latents.shape, generator=generator, device=device, dtype=dtype)
             latents = scheduler.add_noise(target_latents, noise, timesteps[0])
+            # TODO add boarder_mask here if it exists, and resize it. 
             boarder_mask = torch.ones_like(latents)
             boarder_size_h = latents.shape[3] // 12
             boarder_size_w = latents.shape[4] // 12
