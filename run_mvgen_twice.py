@@ -62,41 +62,44 @@ def eval(args, config, data, pipeline):
 
         # Crop predicted images to "zoomed in" area 
         cropped_preds = np.zeros_like(wide_no_cond)
-        boarder_mask = np.ones_like(wide_no_cond)
-        boarder_size_h = wide_no_cond.shape[3] // 12
-        boarder_size_w = wide_no_cond.shape[4] // 12
-        boarder_mask[:, :, boarder_size_h:-boarder_size_h, boarder_size_w:-boarder_size_w] = 0
+        boarder_mask = np.ones(wide_no_cond.shape[:-1])
+        boarder_size_h = wide_no_cond.shape[1] // 12
+        boarder_size_w = wide_no_cond.shape[2] // 12
+        boarder_mask[:, boarder_size_h:-boarder_size_h, boarder_size_w:-boarder_size_w] = 0
 
         for cam in cameras:
-            crop_coords = cam["crop_coords"]
-            crop_size = cam["crop_size"]
-            crop = torch.zeros((crop_size[0], crop_size[1], 3))
+            crop_coords = torch.tensor(cam["crop_coords"])
+            crop_size = torch.tensor(cam["crop_size"])
+            crop = np.zeros((crop_size[0], crop_size[1], 3))
             # Figure out if crop is completely contained in the already generated image 
-            crop_start = torch.clamp(-torch.tensor(crop_coords), 0)
-            generated_start = crop_coords - crop_start 
+            crop_start = torch.clamp(-crop_coords, 0)
+            generated_start = crop_coords + crop_start 
             
-            amount_to_remove = -torch.clamp(torch.tensor(crop_coords + crop_size - wide_no_cond[cam["wide_idx"], :, :, 0].shape), 0)
+            amount_to_remove = -torch.clamp(crop_coords + crop_size - torch.tensor(wide_no_cond[cam["wide_idx"], :, :, 0].shape), 0)
             crop_end = crop_size - amount_to_remove 
             generated_end = crop_coords + crop_size - amount_to_remove
             
             crop[crop_start[0]:crop_end[0], crop_start[1]:crop_end[1]] = wide_no_cond[cam["wide_idx"], generated_start[0]:generated_end[0], generated_start[1]:generated_end[1]]
             cropped_preds[cam["wide_idx"]] = cv2.resize(crop, (w,h))
 
-            valid_from_values = (cropped_preds[cam["wide_idx"]].abs().sum(dim=0, keepdim=True) > 0).float()
+            valid_from_values = (np.abs(cropped_preds[cam["wide_idx"]]).sum(axis=2) > 0)
             boarder_mask[cam["wide_idx"]] *= valid_from_values
-
-
-
         
         new_in = torch.stack([image[0]] + [image_transform(pred).to("cuda") for pred in cropped_preds])
         intrinsic = torch.cat([ref_intrinsics.unsqueeze(0), zoomed_intrinsics], dim=0).to("cuda")
 
+
+        # Downscale crop by VAE scale factor 
+        scale_factor = pipeline.vae_scale_factor
+        boarder_mask_scaled = boarder_mask.reshape(boarder_mask.shape[0], boarder_mask.shape[1]//scale_factor, scale_factor, boarder_mask.shape[2]//scale_factor, scale_factor)
+        boarder_mask_scaled = boarder_mask_scaled.any(axis=(2,4))
+        
         # Run it again but with less applied noise 
         zoomed_pred = pipeline(images=new_in, nframe=nframe_new, cond_num=args.cond_num,
                             key_rescale=key_rescale, height=h, width=w, intrinsics=intrinsic,
                             extrinsics=extrinsic, num_inference_steps=80, guidance_scale=args.val_cfg,
                             output_type="np", config=config_copy, tag=["custom"] * image.shape[0],
-                            class_label=class_label, depth=depth, vae=pipeline.vae, generator=generator, start_from_step=10, boarder_mask=boarder_mask).images  # [f,h,w,c]
+                            class_label=class_label, depth=depth, vae=pipeline.vae, generator=generator, start_from_step=10, boarder_mask=boarder_mask_scaled).images  # [f,h,w,c]
         zoomed_pred_no_cond = zoomed_pred[args.cond_num:]
         zoomed_pred_no_cond = (zoomed_pred_no_cond * 255).astype(np.uint8)
         
@@ -122,11 +125,12 @@ def eval(args, config, data, pipeline):
             crop = cv2.resize(zoomed_pred_no_cond[cam["wide_idx"]], (crop_size[1], crop_size[0]))
             # Find coordinates for the crop in the final image (avoid overflows)
             crop_start = torch.clamp(-torch.tensor(crop_coords), 0)
-            bottom_right_corner_crop = torch.tensor(crop_coords) - crop_start + torch.tensor(crop_size) 
+            bottom_right_corner_crop = torch.tensor(crop_coords) + torch.tensor(crop_size) 
             amount_to_remove_crop = torch.clamp(bottom_right_corner_crop - torch.tensor(wide_no_cond.shape[1:3]), 0)
             crop_end = bottom_right_corner_crop - amount_to_remove_crop
             
-            wide_no_cond[cam["wide_idx"], crop_coords[0]:crop_end[0], crop_coords[1]:crop_end[1]] = crop[crop_start[0]:crop_size[0]-amount_to_remove_crop[0], crop_start[1]:crop_size[1]-amount_to_remove_crop[1]]
+            generated_start = torch.clamp(torch.tensor(crop_coords), 0)
+            wide_no_cond[cam["wide_idx"], generated_start[0]:crop_end[0], generated_start[1]:crop_end[1]] = crop[crop_start[0]:crop_size[0]-amount_to_remove_crop[0], crop_start[1]:crop_size[1]-amount_to_remove_crop[1]]
             
             cv2.imwrite(config.save_path / cam["name"], wide_no_cond[cam["wide_idx"], :, :, ::-1])
 

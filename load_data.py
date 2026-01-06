@@ -75,10 +75,13 @@ def load_dataset(args, config):
         cam["fl_x"], cam["cx"] = cam["fl_x"]*w_scale, cam["cx"]*w_scale
         cam["fl_y"], cam["cy"] = cam["fl_y"]*h_scale, cam["cy"]*h_scale
         # The crop is taken in the original frame, and thus must also be updated
-        cam["crop_x_min"] = int(cam["crop_x_min"] * w_scale)
-        cam["crop_x_max"] = int(cam["crop_x_max"] * w_scale)
-        cam["crop_y_min"] = int(cam["crop_y_min"] * h_scale)
-        cam["crop_y_max"] = int(cam["crop_y_max"] * h_scale)
+        dif_x = int(np.round((cam["crop_x_max"] - cam["crop_x_min"])*w_scale))
+        dif_y = int(np.round((cam["crop_y_max"] - cam["crop_y_min"])*h_scale))
+
+        cam["crop_x_min"] = int(np.round(cam["crop_x_min"] * w_scale))
+        cam["crop_x_max"] = cam["crop_x_min"] + dif_x
+        cam["crop_y_min"] = int(np.round(cam["crop_y_min"] * h_scale))
+        cam["crop_y_max"] = cam["crop_y_min"] + dif_y
 
         intrinsic = np.array([[cam["fl_x"], 0, cam["cx"]],
                         [0, cam["fl_y"], cam["cy"]],

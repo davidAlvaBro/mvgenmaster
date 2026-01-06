@@ -1069,10 +1069,16 @@ class StableDiffusionMultiViewPipeline(
             noise = randn_tensor(target_latents.shape, generator=generator, device=device, dtype=dtype)
             latents = scheduler.add_noise(target_latents, noise, timesteps[0])
             # TODO add boarder_mask here if it exists, and resize it. 
-            boarder_mask = torch.ones_like(latents)
-            boarder_size_h = latents.shape[3] // 12
-            boarder_size_w = latents.shape[4] // 12
-            boarder_mask[:, :, :, boarder_size_h:-boarder_size_h, boarder_size_w:-boarder_size_w] = 0
+            boarder_mask = kwargs.get("boarder_mask", None)
+            if boarder_mask is None: 
+                boarder_mask = torch.ones_like(latents)
+                boarder_size_h = latents.shape[3] // 12
+                boarder_size_w = latents.shape[4] // 12
+                boarder_mask[:, :, :, boarder_size_h:-boarder_size_h, boarder_size_w:-boarder_size_w] = 0
+                boarder_mask = torch.cat([torch.zeros_like(image_latents[:, :cond_num]), boarder_mask], dim=1).bool()
+            else: 
+                boarder_mask = torch.tensor(boarder_mask).to(device).unsqueeze(1).unsqueeze(0)
+                boarder_mask = boarder_mask.repeat(1, 1, image_latents.shape[2], 1, 1) 
             boarder_mask = torch.cat([torch.zeros_like(image_latents[:, :cond_num]), boarder_mask], dim=1).bool()
             
         latents = torch.cat([image_latents[:, :cond_num], latents], dim=1)

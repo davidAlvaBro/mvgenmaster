@@ -1,0 +1,19 @@
+{
+  "name": "mvgen-debug",
+  "image": "mvgenmaster:cuda",
+  "workspaceFolder": "/app",
+  "overrideCommand": true,
+  "init": true,
+  "runArgs": [
+    "--gpus=all"
+    // "--entrypoint=/bin/sh",
+    // "--user=794043704:794000513"
+  ],
+  "workspaceMount": "source=/home/dbl@grazper.net/david-thesis/MVGen,target=/app,type=bind,consistency=cached",
+  "mounts": [
+    "source=/home/dbl@grazper.net/david-thesis/data,target=/data,type=bind"
+  ],
+  "remoteEnv": {
+    "HOME": "/app"
+  }
+}
