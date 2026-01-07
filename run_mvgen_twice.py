@@ -27,7 +27,7 @@ def eval(args, config, data, pipeline):
 
     # Extract reference cams 
     ref_cam = cameras[data["ref"]] # TODO check this works with multiple if I ever need it 
-    ref_intrinsics = zoomed_intrinsics[ref_cam["zoomed_idx"]]
+    ref_intrinsics = zoomed_intrinsics[ref_cam["zoomed_idx"]] if args.zoomed else intrinsics[ref_cam["wide_idx"]]
     ref_extrinsics = extrinsics[ref_cam["wide_idx"]]
     ref_depth = data["ref_depth"]
     img = data["ref_image"]
@@ -148,6 +148,7 @@ if __name__ == '__main__':
     parser.add_argument("--output_path", type=str, default="mvgen")
     parser.add_argument("--val_cfg", type=float, default=2.0)
     parser.add_argument("--log_everything", action='store_true', help="If set also saves the non-inpainted image, the crop and inpainting alone")
+    parser.add_argument("--zoomed", action='store_true', help="Is the reference frame zoomed or not")
     # TODO are these even relevant at all? Look at debugging and kill them
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--class_label", type=int, default=0)
