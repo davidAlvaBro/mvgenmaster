@@ -60,6 +60,11 @@ def eval(args, config, data, pipeline):
         wide_no_cond = wide_predictions[args.cond_num:] # TODO kinda want to see how the reference image looks
         wide_no_cond = (wide_no_cond * 255).astype(np.uint8)
 
+        if args.run_once: 
+            for cam in cameras:
+                cv2.imwrite(config.save_path / cam["name"], wide_no_cond[cam["wide_idx"], :, :, ::-1])
+            return 
+
         # Crop predicted images to "zoomed in" area 
         cropped_preds = np.zeros_like(wide_no_cond)
         boarder_mask = np.ones(wide_no_cond.shape[:-1])
@@ -75,7 +80,7 @@ def eval(args, config, data, pipeline):
             crop_start = torch.clamp(-crop_coords, 0)
             generated_start = crop_coords + crop_start 
             
-            amount_to_remove = -torch.clamp(crop_coords + crop_size - torch.tensor(wide_no_cond[cam["wide_idx"], :, :, 0].shape), 0)
+            amount_to_remove = torch.clamp(crop_coords + crop_size - torch.tensor(wide_no_cond[cam["wide_idx"], :, :, 0].shape), 0)
             crop_end = crop_size - amount_to_remove 
             generated_end = crop_coords + crop_size - amount_to_remove
             
@@ -149,7 +154,7 @@ if __name__ == '__main__':
     parser.add_argument("--val_cfg", type=float, default=2.0)
     parser.add_argument("--log_everything", action='store_true', help="If set also saves the non-inpainted image, the crop and inpainting alone")
     parser.add_argument("--zoomed", action='store_true', help="Is the reference frame zoomed or not")
-    # TODO are these even relevant at all? Look at debugging and kill them
+    parser.add_argument("--run_once", action='store_true', help="If not set MVGenMaster will render twice with an inpainting technique.")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--class_label", type=int, default=0)
 
